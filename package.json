@@ -1,0 +1,23 @@
+{
+  "name": "site60",
+  "version": "1.0.0",
+  "description": "WhatsApp-to-website in 60 seconds",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1141.0",
+    "dotenv": "^17.2.0",
+    "express": "^4.22.1",
+    "mongodb": "^6.20.0",
+    "sharp": "^0.35.5"
+  }
+}
