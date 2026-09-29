@@ -46,12 +46,16 @@ export const config = {
     apiToken: env.CF_AI_TOKEN || '',
   },
   imageBase: (env.IMAGE_PUBLIC_BASE || '').replace(/\/+$/, ''),
+  adminNumbers: (env.ADMIN_NUMBERS || '')
+    .split(',')
+    .map((n) => n.replace(/\D/g, ''))
+    .filter(Boolean),
   limits: {
     maxPhotos: 6,
-    sitesPerDay: 3,
-    aiCallsPerDay: 30,
-    photosPerHour: 20,
-    advancedPerDay: 3,
+    sitesPerDay: Number(env.LIMIT_SITES_PER_DAY) || 3,
+    aiCallsPerDay: Number(env.LIMIT_AI_CALLS_PER_DAY) || 30,
+    photosPerHour: Number(env.LIMIT_PHOTOS_PER_HOUR) || 20,
+    advancedPerDay: Number(env.LIMIT_ADVANCED_PER_DAY) || 3,
   },
 };
 

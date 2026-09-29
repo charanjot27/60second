@@ -1,3 +1,4 @@
+import { config } from './config.js';
 import { usage, events } from './db.js';
 import { hashPhone, log } from './log.js';
 
@@ -5,6 +6,7 @@ const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
 async function allow(phone, kind, limit, windowMs) {
+  if (config.adminNumbers.includes(String(phone))) return true;
   const bucket = Math.floor(Date.now() / windowMs);
   const doc = await usage.findOneAndUpdate(
     { _id: `${kind}:${hashPhone(phone)}:${bucket}` },
