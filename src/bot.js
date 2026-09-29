@@ -9,6 +9,7 @@ import { enqueue } from './queue.js';
 import { allowAiCall, allowPhoto, allowAdvanced, allowNewSite, track } from './limits.js';
 import { makeDesign } from './design.js';
 import { generateSiteImages, fallbackPrompts } from './images.js';
+import { callClaudeRaw, claudeEnabled } from './claude.js';
 import { generateSitePage, pickDirection } from './generate.js';
 import { formatPhone } from './render.js';
 import { hashPhone, log } from './log.js';
@@ -37,7 +38,9 @@ export async function handleMessage(msg) {
   const cmd = (msg.buttonId || text).toLowerCase().replace(/\s+/g, ' ');
 
   let result;
-  if (RESTART.has(cmd)) {
+  if (cmd === 'model check' && config.adminNumbers.includes(String(msg.from))) {
+    result = await modelCheck(s);
+  } else if (RESTART.has(cmd)) {
     clearPhotoTimer(s._id);
     s.state = 'NEW';
     s.draft = {};
@@ -64,6 +67,26 @@ export async function handleMessage(msg) {
     to: result === DROP_SESSION ? 'DELETED' : s.state,
     ms: Date.now() - started,
   });
+}
+
+async function modelCheck(s) {
+  if (!claudeEnabled()) return sendText(s._id, '❌ ANTHROPIC_API_KEY is not set.');
+  const started = Date.now();
+  try {
+    const r = await callClaudeRaw({
+      model: config.ai.designModel,
+      system: 'Reply with one short sentence.',
+      user: 'Say hello.',
+      maxTokens: 30,
+      timeoutMs: 30000,
+    });
+    return sendText(
+      s._id,
+      `✅ Claude works.\nRequested: ${config.ai.designModel}\nAnswered by: ${r.model}\nTokens: ${r.usage?.input_tokens} in, ${r.usage?.output_tokens} out\nTime: ${Date.now() - started} ms`
+    );
+  } catch (err) {
+    return sendText(s._id, `❌ ${err.message}`);
+  }
 }
 
 const HANDLERS = {

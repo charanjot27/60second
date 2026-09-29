@@ -4,7 +4,7 @@ export function claudeEnabled() {
   return Boolean(config.ai.apiKey);
 }
 
-export async function callClaude({ model, system, user, maxTokens = 4000, temperature = 1, timeoutMs = 60000 }) {
+export async function callClaudeRaw({ model, system, user, maxTokens = 4000, temperature = 1, timeoutMs = 60000 }) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -25,5 +25,9 @@ export async function callClaude({ model, system, user, maxTokens = 4000, temper
   const body = await res.json();
   const text = (body.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('');
   if (!text) throw new Error('Claude returned no text');
-  return text;
+  return { text, model: body.model, usage: body.usage };
+}
+
+export async function callClaude(options) {
+  return (await callClaudeRaw(options)).text;
 }
