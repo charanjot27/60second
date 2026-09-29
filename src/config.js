@@ -37,12 +37,17 @@ export const config = {
     secretAccessKey: env.S3_SECRET_ACCESS_KEY || '',
     region: env.S3_REGION || 'auto',
   },
+  cf: {
+    accountId: env.CF_ACCOUNT_ID || '',
+    apiToken: env.CF_AI_TOKEN || '',
+  },
   imageBase: (env.IMAGE_PUBLIC_BASE || '').replace(/\/+$/, ''),
   limits: {
     maxPhotos: 6,
     sitesPerDay: 3,
     aiCallsPerDay: 30,
     photosPerHour: 20,
+    advancedPerDay: 3,
   },
 };
 

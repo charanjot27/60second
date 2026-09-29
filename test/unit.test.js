@@ -176,3 +176,49 @@ test('parseIncoming normalises Meta payloads', () => {
   assert.equal(loc.location.lat, 30.9);
   assert.deepEqual(parseIncoming({ entry: [{ changes: [{ value: { statuses: [{}] } }] }] }), []);
 });
+
+const { makeDesign, palette } = await import('../src/design.js');
+const { renderAdvanced } = await import('../src/advanced.js');
+
+test('makeDesign is stable per salt and varies across sites', () => {
+  const a = { slug: 'sweetcrumbs', businessName: 'Sweet Crumbs', category: 'Home Bakery' };
+  assert.deepEqual(makeDesign(a, '1'), makeDesign(a, '1'));
+  const variants = new Set();
+  for (let i = 0; i < 30; i++) {
+    const d = makeDesign({ slug: `shop${i}`, businessName: `Shop ${i}`, category: 'Cafe' }, String(i));
+    variants.add(`${d.layout}-${d.font}-${d.mode}-${d.hue}`);
+    assert.match(palette(d).accent, /^hsl\(/);
+  }
+  assert.ok(variants.size > 15);
+});
+
+test('renderAdvanced escapes content and handles every layout', () => {
+  const base = {
+    slug: 'sweetcrumbs',
+    ownerPhone: '919812345678',
+    phone: '919812345678',
+    businessName: 'Sweet <Crumbs>',
+    category: 'Home Bakery',
+    city: 'Ludhiana',
+    tagline: 'Fresh cakes',
+    description: 'Cakes </script><script>alert(1)</script>',
+    services: ['Cakes', 'Cupcakes'],
+    style: 'advanced',
+    photos: [photo(1), photo(2)],
+    aiImages: [{ ...photo(3), ai: true }, { ...photo(4), ai: true }],
+  };
+  for (const layout of ['split', 'center', 'full', 'editorial']) {
+    for (const withPhotos of [true, false]) {
+      const site = {
+        ...base,
+        photos: withPhotos ? base.photos : [],
+        aiImages: withPhotos ? base.aiImages : [],
+        design: { ...makeDesign(base, 'x'), layout },
+      };
+      const html = renderAdvanced(site);
+      assert.ok(html.includes('Sweet &lt;Crumbs&gt;'));
+      assert.ok(!html.includes('<script>alert(1)</script>'));
+      assert.ok(html.includes('id="cta"'));
+    }
+  }
+});

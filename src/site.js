@@ -11,6 +11,7 @@ import {
   renderPrivacy,
   renderTerms,
 } from './render.js';
+import { renderAdvanced } from './advanced.js';
 
 const TTL = 60_000;
 const MAX_ENTRIES = 5000;
@@ -45,7 +46,7 @@ async function findSite(key, query) {
   if (hit && Date.now() - hit.at < TTL) return hit.value;
   const site = await sites.findOne(query);
   const value = site
-    ? { status: site.status || 'active', html: site.status === 'suspended' ? null : renderSite(site) }
+    ? { status: site.status || 'active', html: site.status === 'suspended' ? null : site.style === 'advanced' && site.design ? renderAdvanced(site) : renderSite(site) }
     : null;
   remember(key, value);
   return value;

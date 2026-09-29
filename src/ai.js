@@ -19,6 +19,7 @@ Reply with ONE JSON object and nothing else, using exactly these keys:
   "services": ["3 to 6 short items the business offers, each under 32 characters"],
   "theme": "one of rose, forest, ocean, sunset, slate, plum that suits the business",
   "slugHint": "short lowercase web name from the business name, letters and digits only",
+  "imagePrompts": ["3 short English scene descriptions for illustrative photos of this kind of business, no people's faces, no text or logos"],
   "language": "en, hi or pa: the main language the owner wrote in"
 }
 Write the copy in the same language and script the owner used; use simple English if the message mixes languages.
@@ -54,6 +55,7 @@ export function fallbackCopy(text, ownerName = '') {
     services: [],
     theme: 'slate',
     slugHint: '',
+    imagePrompts: [],
     language: 'en',
   };
 }
@@ -75,6 +77,9 @@ export function sanitize(data, rawText, ownerName) {
     services,
     theme: THEMES.includes(data.theme) ? data.theme : 'slate',
     slugHint: clean(data.slugHint, 30).toLowerCase().replace(/[^a-z0-9]/g, ''),
+    imagePrompts: Array.isArray(data.imagePrompts)
+      ? data.imagePrompts.map((p) => clean(p, 200)).filter(Boolean).slice(0, 3)
+      : [],
     language: ['en', 'hi', 'pa'].includes(data.language) ? data.language : 'en',
   };
 }

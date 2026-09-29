@@ -6,7 +6,9 @@ import { processAndUpload, deletePhotos } from './storage.js';
 import { isTaken, suggestSlug, parseSlugInput, slugProblem } from './slug.js';
 import { invalidate } from './site.js';
 import { enqueue } from './queue.js';
-import { allowAiCall, allowPhoto, allowNewSite, track } from './limits.js';
+import { allowAiCall, allowPhoto, allowAdvanced, allowNewSite, track } from './limits.js';
+import { makeDesign } from './design.js';
+import { generateSiteImages, fallbackPrompts, imagesEnabled } from './images.js';
 import { formatPhone } from './render.js';
 import { hashPhone, log } from './log.js';
 
@@ -81,7 +83,7 @@ const HANDLERS = {
     await sendText(
       s._id,
       `Hi ${s.name || 'there'} 👋 I'll build a website for your business in about 60 seconds.\n\n` +
-        `*Step 1 of 3*\nTell me about your business in one message: its name, what you sell, and your city.\n\n` +
+        `*Step 1 of 4*\nTell me about your business in one message: its name, what you sell, and your city.\n\n` +
         `_Example: "Sweet Crumbs, custom birthday cakes and cupcakes, home bakery in Ludhiana"_`
     );
   },
@@ -109,14 +111,37 @@ const HANDLERS = {
     }
     track(s._id, 'about_received');
 
-    const { allowed, reason, slugHint, ...fields } = info;
+    const { allowed, reason, slugHint, imagePrompts, ...fields } = info;
     if (s.editing === 'about') return applyEdit(s, fields, 'Details updated');
 
-    s.draft = { ...fields, slugHint, photos: [] };
+    s.draft = { ...fields, slugHint, imagePrompts, photos: [] };
+    s.state = 'ASK_STYLE';
+    await sendButtons(
+      s._id,
+      `*${info.businessName}* ✨\n\n*Step 2 of 4*\nWhich website do you want?\n\n` +
+        `⚡ *Basic*: clean and simple, ready in seconds.\n\n` +
+        `🎨 *Advanced*: a modern one-page website with a design made just for your business, plus AI-generated pictures.`,
+      [
+        { id: 'style_basic', title: 'Basic ⚡' },
+        { id: 'style_pro', title: 'Advanced 🎨' },
+      ]
+    );
+  },
+
+  async ASK_STYLE(s, msg, text, cmd) {
+    const advanced = cmd === 'style_pro' || /^(advanced|pro|good|ui)/.test(cmd);
+    const basic = cmd === 'style_basic' || /^(basic|simple|60)/.test(cmd);
+    if (!advanced && !basic) {
+      return sendButtons(s._id, 'Please choose a style for your website.', [
+        { id: 'style_basic', title: 'Basic ⚡' },
+        { id: 'style_pro', title: 'Advanced 🎨' },
+      ]);
+    }
+    s.draft.style = advanced ? 'advanced' : 'basic';
     s.state = 'ASK_PHOTOS';
     await sendButtons(
       s._id,
-      `*${info.businessName}* ✨\n\n*Step 2 of 3*\nSend up to ${MAX_PHOTOS} photos of your products, work or shop. ` +
+      `*Step 3 of 4*\nSend up to ${MAX_PHOTOS} photos of your products, work or shop. ` +
         `Select them all at once, then tap Done.`,
       [{ id: 'skip_photos', title: 'Skip photos' }]
     );
@@ -219,6 +244,13 @@ const HANDLERS = {
     }
     if (cmd === 'get_link') return sendText(s._id, siteUrl(site.slug));
 
+    if (cmd === 'new design') {
+      if (site.style !== 'advanced') {
+        return sendText(s._id, 'New designs are available for Advanced websites. Send *restart* to create an Advanced site.');
+      }
+      return applyEdit(s, { design: makeDesign(site, String(Date.now())) }, '🎨 New design ready');
+    }
+
     if (msg.type === 'location' && msg.location?.lat != null) {
       return applyEdit(s, { location: msg.location }, '📍 Location added');
     }
@@ -286,10 +318,10 @@ async function askSlug(s) {
   s.draft.slug = await suggestSlug(s.draft.businessName, s.draft.city, s.draft.slugHint);
   if (!s.draft.slug) {
     s.state = 'ASK_CUSTOM_SLUG';
-    return sendText(s._id, `*Step 3 of 3*\nType a short name for your website address.\n_Example: sweetcrumbs → sweetcrumbs.${ROOT}_`);
+    return sendText(s._id, `*Step 4 of 4*\nType a short name for your website address.\n_Example: sweetcrumbs → sweetcrumbs.${ROOT}_`);
   }
   s.state = 'ASK_SLUG';
-  await sendButtons(s._id, `*Step 3 of 3*\nYour website address will be:\n\n🌐 *${s.draft.slug}.${ROOT}*`, [
+  await sendButtons(s._id, `*Step 4 of 4*\nYour website address will be:\n\n🌐 *${s.draft.slug}.${ROOT}*`, [
     { id: 'slug_ok', title: 'Use this ✅' },
     { id: 'slug_change', title: 'Pick another ✏️' },
   ]);
@@ -323,6 +355,19 @@ async function publish(s) {
   }
   const d = s.draft;
   const now = new Date();
+  let style = d.style === 'advanced' ? 'advanced' : 'basic';
+  let extras = {};
+  if (style === 'advanced') {
+    if (!(await allowAdvanced(s._id, config.limits.advancedPerDay))) {
+      style = 'basic';
+      await sendText(s._id, "You've reached today's limit for advanced designs, so I'll publish the basic version.");
+    } else {
+      await sendText(s._id, imagesEnabled() ? '🎨 Designing your website and creating pictures. About 20 seconds...' : '🎨 Designing your website...');
+      const prompts = d.imagePrompts?.length ? d.imagePrompts : fallbackPrompts(d);
+      const aiImages = await generateSiteImages(prompts, s._id);
+      extras = { design: makeDesign(d, String(Date.now())), aiImages };
+    }
+  }
   const site = {
     slug: d.slug,
     ownerPhone: s._id,
@@ -338,6 +383,8 @@ async function publish(s) {
     theme: d.theme,
     language: d.language,
     photos: d.photos ?? [],
+    style,
+    ...extras,
     createdAt: now,
     updatedAt: now,
   };
@@ -364,8 +411,9 @@ async function publish(s) {
       `Put it in your WhatsApp status, Instagram bio and Google Maps listing.\n\n` +
       `ℹ️ Your number ${formatPhone(s._id)} is shown on the site for the WhatsApp and Call buttons. ` +
       `To show a different number, send: *number 9876543210*\n` +
-      `📍 Share your location pin here to add a map.\n\n` +
-      `Message me anytime to edit your site.`
+      `📍 Share your location pin here to add a map.\n` +
+      (style === 'advanced' ? `🎨 Not happy with the look? Send *new design* for a fresh one.\n` : '') +
+      `\nMessage me anytime to edit your site.`
   );
 }
 

@@ -16,6 +16,7 @@ async function allow(phone, kind, limit, windowMs) {
 
 export const allowAiCall = (phone, limit) => allow(phone, 'ai', limit, DAY);
 export const allowPhoto = (phone, limit) => allow(phone, 'photo', limit, HOUR);
+export const allowAdvanced = (phone, limit) => allow(phone, 'adv', limit, DAY);
 export const allowNewSite = (phone, limit) => allow(phone, 'site', limit, DAY);
 
 export function track(phone, type, data = {}) {
