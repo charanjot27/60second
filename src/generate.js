@@ -2,6 +2,7 @@ import sanitizeHtml from 'sanitize-html';
 import { config } from './config.js';
 import { log } from './log.js';
 import { callGemini, geminiEnabled } from './gemini.js';
+import { callClaude, claudeEnabled } from './claude.js';
 import { escapeHtml } from './render.js';
 
 const DIRECTIONS = [
@@ -273,7 +274,7 @@ function validPage(page) {
   );
 }
 
-async function attempt(site, direction, opts, timeoutMs, note) {
+async function attempt(site, direction, opts, provider, timeoutMs, note) {
   const brief = {
     businessName: site.businessName,
     category: site.category,
@@ -287,13 +288,11 @@ async function attempt(site, direction, opts, timeoutMs, note) {
     designDirection: direction,
     accentHueHint: site.design?.hue,
   };
-  const raw = await callGemini({
-    system: SYSTEM_PROMPT,
-    user: `Design the website for this business.${note ? ` ${note}` : ''}\n${JSON.stringify(brief, null, 2)}`,
-    maxTokens: 30000,
-    temperature: 1,
-    timeoutMs,
-  });
+  const user = `Design the website for this business.${note ? ` ${note}` : ''}\n${JSON.stringify(brief, null, 2)}`;
+  const raw =
+    provider === 'claude'
+      ? await callClaude({ model: config.ai.designModel, system: SYSTEM_PROMPT, user, maxTokens: 24000, temperature: 1, timeoutMs })
+      : await callGemini({ system: SYSTEM_PROMPT, user, maxTokens: 30000, temperature: 1, timeoutMs });
   const { meta, css, body } = parseSections(raw);
   const page = {
     themeColor: /^#[0-9a-f]{6}$/i.test(meta.themeColor || '') ? meta.themeColor : '#222222',
@@ -306,14 +305,28 @@ async function attempt(site, direction, opts, timeoutMs, note) {
   return page;
 }
 
+export function designerEnabled() {
+  return claudeEnabled() || geminiEnabled();
+}
+
 export async function generateSitePage(site, direction, opts = {}) {
-  if (!geminiEnabled()) return null;
-  try {
-    return await attempt(site, direction, opts, 110000, '');
-  } catch (err) {
-    log.warn('page attempt failed, retrying', { error: err.message });
-    return attempt(site, direction, opts, 80000, 'Your previous answer was rejected. Follow the output format exactly and make the page rich and complete.');
+  const providers = [];
+  if (claudeEnabled()) providers.push(['claude', 240000]);
+  if (geminiEnabled()) providers.push(['gemini', 110000]);
+  const note = 'Your previous answer was rejected. Follow the output format exactly and make the page rich and complete.';
+  let lastError = null;
+  for (const [provider, timeoutMs] of providers) {
+    for (const tries of [0, 1]) {
+      try {
+        return await attempt(site, direction, opts, provider, timeoutMs, tries ? note : '');
+      } catch (err) {
+        lastError = err;
+        log.warn('page attempt failed', { provider, error: err.message });
+      }
+    }
   }
+  if (lastError) throw lastError;
+  return null;
 }
 
 export function pageCss(css) {

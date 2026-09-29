@@ -317,3 +317,26 @@ test('generateSitePage parses Gemini sections and retries once', async () => {
     globalThis.fetch = realFetch;
   }
 });
+
+test('Claude is used for design when an Anthropic key is set', async () => {
+  const { config } = await import('../src/config.js');
+  const { generateSitePage } = await import('../src/generate.js');
+  config.ai.apiKey = 'test-anthropic';
+  const css = 'h1{color:red}\n'.repeat(250);
+  const body = '<div class="page"><a href="{{wa}}">{{name}}</a>' + '<p>text</p>'.repeat(300) + '</div>';
+  const good = `===META===\n{"themeColor":"#445566","fonts":[]}\n===CSS===\n${css}\n===BODY===\n${body}\n===END===`;
+  const urls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    urls.push(String(url));
+    return { ok: true, json: async () => ({ content: [{ type: 'text', text: good }] }) };
+  };
+  try {
+    const page = await generateSitePage({ businessName: 'Study Room', services: [], photos: [] }, 'Swiss minimal');
+    assert.ok(urls[0].startsWith('https://api.anthropic.com/'));
+    assert.equal(page.themeColor, '#445566');
+  } finally {
+    globalThis.fetch = realFetch;
+    config.ai.apiKey = '';
+  }
+});

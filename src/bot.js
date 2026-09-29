@@ -252,7 +252,7 @@ const HANDLERS = {
       if (!(await allowAdvanced(s._id, config.limits.advancedPerDay))) {
         return sendText(s._id, "You've reached today's limit for new designs. Please try again tomorrow.");
       }
-      await sendText(s._id, '🎨 Creating a new design. This takes about a minute...');
+      await sendText(s._id, '🎨 Creating a new design. This takes 1 to 3 minutes...');
       const design = makeDesign(site, String(Date.now()));
       const page = await generateSitePage({ ...site, design }, pickDirection(site.slug), {
         hasImages: Boolean(site.aiImages?.length || site.photos?.length),
@@ -378,7 +378,7 @@ async function publish(s) {
       style = 'basic';
       await sendText(s._id, "You've reached today's limit for advanced designs, so I'll publish the basic version.");
     } else {
-      await sendText(s._id, '🎨 Designing your website and creating pictures. This takes about a minute...');
+      await sendText(s._id, '🎨 Designing your website and creating pictures. This takes 1 to 3 minutes...');
       const prompts = d.imagePrompts?.length ? d.imagePrompts : fallbackPrompts(d);
       const design = makeDesign(d, String(Date.now()));
       const [aiImages, page] = await Promise.all([
