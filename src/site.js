@@ -4,6 +4,7 @@ import { sites } from './db.js';
 import { log } from './log.js';
 import {
   SITE_SCRIPT,
+  ENHANCE_SCRIPT,
   renderSite,
   renderLanding,
   renderNotFound,
@@ -17,7 +18,8 @@ const TTL = 60_000;
 const MAX_ENTRIES = 5000;
 const cache = new Map();
 
-const scriptHash = crypto.createHash('sha256').update(SITE_SCRIPT).digest('base64');
+const hashOf = (code) => `'sha256-${crypto.createHash('sha256').update(code).digest('base64')}'`;
+const scriptSources = `${hashOf(SITE_SCRIPT)} ${hashOf(ENHANCE_SCRIPT)}`;
 const imageOrigin = config.imageBase ? new URL(config.imageBase).origin : '';
 
 const CSP = [
@@ -25,7 +27,7 @@ const CSP = [
   `img-src 'self' data: ${imageOrigin}`.trim(),
   "style-src 'unsafe-inline' https://fonts.googleapis.com",
   'font-src https://fonts.gstatic.com',
-  `script-src 'sha256-${scriptHash}'`,
+  `script-src ${scriptSources}`,
   "base-uri 'none'",
   "form-action 'none'",
   "frame-ancestors 'none'",

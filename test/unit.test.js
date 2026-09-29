@@ -340,3 +340,9 @@ test('Claude is used for design when an Anthropic key is set', async () => {
     config.ai.apiKey = '';
   }
 });
+
+test('enhance script is valid and wired into generated pages', async () => {
+  const { ENHANCE_SCRIPT } = await import('../src/render.js');
+  assert.doesNotThrow(() => new Function(ENHANCE_SCRIPT));
+  assert.ok(ENHANCE_SCRIPT.includes('.reveal') && ENHANCE_SCRIPT.includes('.spot') && ENHANCE_SCRIPT.includes('.nav'));
+});

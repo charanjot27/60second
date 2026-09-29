@@ -6,63 +6,87 @@ import { callClaude, claudeEnabled } from './claude.js';
 import { escapeHtml } from './render.js';
 
 const DIRECTIONS = [
-  'Editorial magazine: oversized serif headlines, generous white space, thin rules, asymmetric grid, one bold accent colour.',
-  'Bold neo-brutalist: chunky borders, hard offset shadows, flat vivid colours, huge type, playful stickers made from CSS shapes.',
-  'Soft glassmorphism: layered gradient mesh background, frosted translucent cards, rounded shapes, gentle floating blobs.',
-  'Luxury dark: near-black background, warm metallic accent, elegant serif display type, subtle glows, refined spacing.',
-  'Playful pastel: rounded blobs, friendly sans-serif display type, sticker-like badges, bouncy hover effects.',
-  'Swiss minimal: strict grid, one typeface family, big numbers, black and white with a single vivid accent.',
-  'Retro poster: halftone-style patterns from CSS gradients, bold condensed headlines, limited 3-colour palette, ticket-like cards.',
-  'Organic natural: earthy tones, soft curved dividers, hand-crafted feel, warm serif headlines, paper-like textures from CSS gradients.',
-  'Modern tech gradient: vibrant gradient hero, bento-grid cards, sharp sans-serif, glowing borders, subtle grid pattern background.',
-  'Warm storefront: cosy colours, big friendly headline, rounded cards, scalloped or wavy section dividers, welcoming tone.',
+  'Calm editorial: warm off-white paper (#FAFAF9), near-black text, Instrument Serif display with Inter body, generous whitespace, thin rules, one muted terracotta accent.',
+  'Swiss precise: strict 12-column grid, Inter Tight display with Inter body, large numerals, hairline borders, cool off-white base, one deep blue-green accent.',
+  'Dark technical: near-black (#0A0A0A) base, Inter Tight with Inter, subtle 1px borders at 8% white, faint grid texture, one amber accent used sparingly.',
+  'Warm craft: cream base, Fraunces display with Figtree body, soft rounded cards, faint paper grain, one deep green accent, welcoming and human.',
+  'Modern minimal: Manrope headings with IBM Plex Sans body, light grey base, large type, asymmetric layout, one confident coral accent.',
+  'Editorial dark serif: charcoal base, Instrument Serif display with Inter body, generous margins, elegant thin dividers, one soft gold accent.',
+  'Fresh clinical: white base, Manrope with IBM Plex Sans, crisp cards with soft shadows, airy spacing, one calm teal accent.',
+  'Bold poster: off-white base, oversized Inter Tight headlines, black borders, tight grid, one vivid red-orange accent, confident and direct.',
 ];
 
-const SYSTEM_PROMPT = `You are the creative director and lead front-end engineer of an award-winning design studio. You are building a bespoke, premium, single-page website for ONE small local business in India. The result must look like a custom agency site that would cost thousands: never like a template, never plain, never generic.
+const SYSTEM_PROMPT = `You are a senior product designer and front-end engineer who has shipped sites for companies like Linear, Stripe, Vercel and Arc. Build a production-quality, highly interactive one-page website for ONE small local business in India. It must look like a real design team spent weeks on it, not like AI generated it.
 
 OUTPUT FORMAT (exactly this, no JSON, no markdown fences, no commentary):
 ===META===
-{"themeColor":"#rrggbb","fonts":[{"family":"Font Name","weights":"400;600;800"}]}
+{"themeColor":"#rrggbb","fonts":[{"family":"Font Name","weights":"400;500;600"}]}
 ===CSS===
 (all the CSS)
 ===BODY===
 (the HTML fragment)
 ===END===
 
+TYPOGRAPHY (strict)
+- Use a professional Google Fonts pairing, max 2 families. Choose from: Inter Tight (headings) + Inter (body); Instrument Serif (display, weight 400 only) + Inter (body); Manrope (headings) + IBM Plex Sans (body); Fraunces (display) + Figtree (body). For Hindi or Punjabi text add the matching Noto Sans (Devanagari or Gurmukhi) as the body fallback.
+- Tight letter-spacing on large headings (-0.02em to -0.04em), body line-height 1.6, clear type scale (roughly 72/48/32/20/16/14px with clamp()), headings in sentence case.
+
+COLOUR (strict)
+- Restrained palette defined as CSS variables: one neutral base (off-white like #FAFAF9 or near-black like #0A0A0A), two or three grays, and ONE accent colour used sparingly (buttons, highlights, links). Pick the accent from the business and design direction.
+- NO purple-to-blue gradients, NO neon glows, NO rainbow gradients, NO heavy glassmorphism. Depth only through 1px borders at 8 to 10 percent opacity, soft shadows, and an optional faint grain made from gradients.
+- Support light and dark mode: define the variables for light, and override them inside @media (prefers-color-scheme: dark).
+
+IMAGERY AND ICONS
+- Use only the provided image placeholders. No external URLs, no cartoon illustrations, no 3D blobs, no emoji as icons, no stock clichés. When there is no picture, compose a refined typographic or geometric hero from CSS instead.
+- Show pictures in clean frames: rounded corners, a 1px border, a soft shadow, slightly layered or offset for depth.
+- Icons: inline SVG only, one consistent set style (Lucide-like, 24px grid, stroke-width 1.5, round caps and joins, currentColor).
+- Do not invent "trusted by" logos, clients or testimonials.
+
+INTERACTIVITY (priority). Use these ready-made hooks, a small script wires them up. Everything must also work without the script.
+- class "reveal" on any element you want to fade and slide up when it scrolls into view. Only hide it inside the selector .js .reveal (opacity 0, translateY 16px, transition 500ms ease-out) and show it with .js .reveal.in. The script sets a --d variable you can use as transition-delay to stagger siblings. Use it for headings, paragraphs, cards and images.
+- class "spot" on cards: the script sets --mx and --my (cursor position inside the card). Build a subtle spotlight border or glow with radial-gradient(circle at var(--mx) var(--my), ...) in a ::before layer, visible on :hover.
+- class "nav" on the top navigation bar: the script adds "stuck" after scrolling. Style .nav.stuck to shrink the padding and gain a blurred translucent background with a 1px bottom border. Keep the nav position:sticky.
+- class "count" on an element containing only a number from the placeholders {{services_count}} or {{photos_count}}: it animates from 0. Use it only where the number is truthful, for example "{{services_count}} things we do".
+- Pure CSS: marquee strips that pause on hover, hover lift on buttons (translateY(-1px) with a shadow), border highlights, a pinned section using position:sticky where a visual stays while step cards scroll past, details/summary FAQ with a smooth open animation (use interpolate-size: allow-keywords and ::details-content transitions as progressive enhancement), and scroll-driven animation guarded by @supports (animation-timeline: view()).
+- Animations 200 to 600ms with ease-out curves. Nothing bouncy or gimmicky. Respect prefers-reduced-motion.
+
+LAYOUT
+- Avoid "centered hero, three cards, CTA". Use asymmetric grids, a bento grid for services, and varied section rhythm with generous whitespace. Max content width about 1200px, an 8px spacing system, mobile-first at 360px with no horizontal scroll, then @media (min-width:900px) upgrades with real layout changes.
+- Contrast at least AA (4.5:1), tap targets at least 48px, visible :focus-visible states.
+
+COPY
+- Specific, human copy for this kind of business, in the business language and script (language is given: en, hi or pa). Keep English placeholders exactly as written.
+- Never use: revolutionize, unlock, seamless, supercharge, elevate, "in today's fast-paced world", "welcome to our website", lorem ipsum.
+- Be concrete, but NEVER invent facts: no prices, statistics, percentages, years in business, awards, addresses, hours, certifications, testimonials, reviews or client names. Use only what you are given. Generic microcopy such as "Message us on WhatsApp" is fine.
+
 TECHNICAL RULES
-- fonts: 1 or 2 Google Fonts families chosen for the direction (a distinctive display face plus a readable body face). Use them in CSS via font-family.
-- CSS: plain CSS only. No @import, no @font-face, no url(...), no external resources. Write a real design system: :root variables for colours, radii, shadows, spacing and fluid type with clamp(); a consistent spacing rhythm; at least 300 lines of considered CSS. Mobile-first at 360px width with no horizontal scroll (use overflow-x:clip on the page wrapper), then @media (min-width:900px) upgrades with real layout changes (asymmetric grids, sticky elements, overlapping images).
-- BODY: an HTML fragment for inside <body>, wrapped in one <div class="page">. Allowed tags: header nav main section article aside footer div span p h1-h4 ul ol li a img figure figcaption button strong em br hr blockquote details summary dl dt dd address small svg with path circle rect g defs linearGradient radialGradient stop line polyline polygon ellipse. NO script, style, link, form, input, iframe, object and NO inline style attributes: class names only.
-- Motion is CSS-only: keyframes, hover and focus effects, marquee strips, floating shapes, gradient shifts, details/summary accordions, and scroll-driven reveals guarded by @supports (animation-timeline: view()). Everything must be fully visible if animation does not run: never start an element at opacity:0 unless its animation ends visible with animation-fill-mode:both. Respect prefers-reduced-motion.
-- Contrast at least 4.5:1 for text. Tap targets at least 48px. Visible :focus-visible styles.
-- Never invent facts: no prices, years in business, awards, statistics, addresses, opening hours, certifications, testimonials, reviews or client names. Use only the facts given. Generic microcopy is fine.
-- Write ALL visible copy in the business language and script (given as language: en, hi or pa). Keep the English placeholders exactly as written.
-- Copy quality: short, confident, specific to this kind of business, with a clear benefit in each headline. No lorem ipsum, no filler, no cliches such as "welcome to our website". Use at most one or two emojis, or none.
+- BODY is an HTML fragment for inside <body>, wrapped in one <div class="page">. Allowed tags: header nav main section article aside footer div span p h1-h4 ul ol li a img figure figcaption button strong em br hr blockquote details summary dl dt dd address small svg with path circle rect g defs linearGradient radialGradient stop line polyline polygon ellipse. NO script, style, link, form, input, iframe, object, and NO inline style attributes: class names only. The classes reveal, spot, nav and count are the hooks above.
+- CSS: plain CSS, no @import, no @font-face, no url(...). At least 300 lines of considered CSS.
 - Do NOT include the site footer, the sticky bottom contact bar, or the photo lightbox: the system adds them.
 
 PLACEHOLDERS (the system fills them safely, use them instead of real values)
-Text: {{name}} {{category}} {{city}} {{tagline}} {{about}} {{phone}} {{address}}
+Text: {{name}} {{category}} {{city}} {{tagline}} {{about}} {{phone}} {{address}} {{services_count}} {{photos_count}}
 Links (inside href): {{wa}} {{tel}} {{map}}
 Images (inside src): {{hero_src}} {{img2_src}} {{img3_src}} with sizes {{hero_w}} {{hero_h}} {{img2_w}} {{img2_h}} {{img3_w}} {{img3_h}}
 Repeat block: <template data-each="services"> ... {{item}} {{n}} ... </template>   ({{n}} is 01, 02, 03 ...)
-Repeat block for gallery, each photo written exactly as:
+Repeat block for the gallery, each photo written exactly as:
 <template data-each="photos"><figure class="ph"><button type="button" data-i="{{i}}"><img src="{{src}}" data-lg="{{lg}}" alt="{{alt}}" width="{{w}}" height="{{h}}" loading="lazy"></button></figure></template>
 Conditional block: <template data-if="KEY"> ... </template> with KEY one of: services photos hero_img img2 img3 address map tagline about. A data-each may sit inside a data-if, but never put data-if inside data-each.
 
-REQUIRED SECTIONS, in this order, each with a clearly different layout but one shared visual language
-1. Sticky top navigation (blurred translucent bar) with the name, anchor links to #about #services #gallery #contact, and a WhatsApp button (href="{{wa}}").
-2. Hero: a huge expressive headline built from {{name}} and {{tagline}} with a typographic twist (gradient or outlined word, mixed weights), supporting line, primary WhatsApp button (href="{{wa}}") and secondary Call button (href="{{tel}}"). The wrapper of these buttons must have id="cta". Show {{hero_src}} inside data-if="hero_img" in a striking frame (mask, clip-path, rotated card, arch, or overlapping layers) with floating decorative shapes and a small badge built from {{category}} and {{city}}. Without an image, build a rich graphic hero from CSS gradients and SVG.
-3. A continuously scrolling marquee strip of the services (or category words) in large type.
-4. About (id="about"): {{about}} with {{img2_src}} when available, an editorial layout with a pull-quote style line taken from {{tagline}}.
-5. Services (id="services"): a bento grid or staggered card layout of every service, each card with {{n}}, an inline SVG icon or shape, and hover lift.
-6. A full-width image band or parallax-style block using {{img3_src}} with an overlaid short statement (only inside data-if="img3").
-7. Gallery (id="gallery"): the photos repeat block in a masonry or mosaic layout with hover zoom, only inside data-if="photos".
-8. How it works: three connected steps (message on WhatsApp, tell us what you need, we take care of it) with a drawn connector line.
-9. FAQ: 3 to 4 details/summary items with generic questions (how do I order or book, can I ask before deciding, how do I reach you) answered only with given facts or by pointing to WhatsApp.
-10. Contact (id="contact"): a bold closing panel with a very large call to action, WhatsApp and Call buttons, {{phone}}, and {{address}} and a directions link ({{map}}) inside data-if.
+REQUIRED SECTIONS in this order, each with a clearly different layout but one shared visual language
+1. Sticky navigation (class nav): the name, anchor links to #about #services #gallery #contact, and a WhatsApp button (href="{{wa}}").
+2. Hero: a large sentence-case headline built from {{name}} and {{tagline}}, a supporting line, primary WhatsApp button (href="{{wa}}") and secondary Call button (href="{{tel}}"). The wrapper of the two buttons must have id="cta". Show {{hero_src}} inside data-if="hero_img" in a framed, layered composition with a small badge from {{category}} and {{city}}.
+3. A slow marquee strip of the services or category words in large type, pausing on hover.
+4. About (id="about"): {{about}} in an editorial layout with {{img2_src}} when available.
+5. Services (id="services"): a bento grid where every service is a spot card with {{n}} and a small SVG icon.
+6. Optional full-width picture band with {{img3_src}} inside data-if="img3" and a short statement.
+7. Gallery (id="gallery"): the photos repeat block in a masonry or mosaic layout, inside data-if="photos".
+8. How it works: three connected steps in a pinned or sticky arrangement (message on WhatsApp, tell us what you need, we take care of it).
+9. FAQ: 3 to 4 details/summary items with generic questions answered only from given facts or by pointing to WhatsApp.
+10. Contact (id="contact"): a bold closing panel with WhatsApp and Call buttons, {{phone}}, and {{address}} and a directions link ({{map}}) inside data-if.
 
 QUALITY BAR
-Deliberate palette (one dominant, one accent, neutrals) that fits the business and direction, with layered backgrounds (gradient meshes, blurred blobs, grain-like patterns from gradients, subtle grids), confident typographic hierarchy with tight leading on display type, generous whitespace, soft shadows and borders, glass or solid cards as the direction demands, animated details (floating shapes, shimmering gradient text, underline sweeps, button glows), and pixel-clean alignment. Make sure it feels expensive and unique, and that a shop owner would be proud to show it.`;
+Confident typographic hierarchy, deliberate restrained palette, pixel-clean alignment, consistent spacing rhythm, tasteful reveal and hover motion, and details a design team would sweat. It should feel expensive, calm and unmistakably made for this business.`;
 
 export function pickDirection(salt = '') {
   const n = [...String(salt)].reduce((a, c) => a + c.charCodeAt(0), 0) + Math.floor(Math.random() * 1000);
@@ -239,6 +263,8 @@ export function buildData(site, helpers) {
     },
     scalars: {
       name: site.businessName,
+      services_count: (site.services || []).length,
+      photos_count: gallery.length,
       category: site.category,
       city: site.city,
       tagline: site.tagline,

@@ -1,6 +1,6 @@
 import { config, siteUrl, botLink } from './config.js';
 import { FONT_PAIRS, palette } from './design.js';
-import { SITE_SCRIPT, escapeHtml as e, formatPhone } from './render.js';
+import { SITE_SCRIPT, ENHANCE_SCRIPT, escapeHtml as e, formatPhone } from './render.js';
 import { buildData, fillTemplate, sanitizeBody, pageCss } from './generate.js';
 
 const WA_ICON =
@@ -170,6 +170,7 @@ ${og ? `<meta property="og:image" content="${e(og.lg)}">` : ''}
 <meta name="twitter:card" content="${og ? 'summary_large_image' : 'summary'}">
 ${page.fonts ? `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="${e(page.fonts)}">` : ''}
 <script type="application/ld+json">${ld}</script>
+<script>${ENHANCE_SCRIPT}</script>
 <style>${SHELL_CSS}${pageCss(page.css)}</style>
 </head>
 <body>
