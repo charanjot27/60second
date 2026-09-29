@@ -1,3 +1,4 @@
+import sharp from 'sharp';
 import { config } from './config.js';
 import { log } from './log.js';
 import { processAndUpload } from './storage.js';
@@ -67,7 +68,7 @@ async function viaCloudflare(prompt, shape) {
     {
       method: 'POST',
       headers: { Authorization: `Bearer ${config.cf.apiToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: full(prompt), steps: 8, width: shape.w, height: shape.h }),
+      body: JSON.stringify({ prompt: full(prompt), steps: 8 }),
       signal: AbortSignal.timeout(60000),
     }
   );
@@ -117,12 +118,24 @@ function providers() {
   return list;
 }
 
+async function cropTo(buffer, shape) {
+  const { width, height } = await sharp(buffer).metadata();
+  if (!width || !height) return buffer;
+  const target = shape.w / shape.h;
+  if (Math.abs(width / height - target) < 0.02) return buffer;
+  const w = width / height > target ? Math.round(height * target) : width;
+  const h = width / height > target ? height : Math.round(width / target);
+  return sharp(buffer)
+    .extract({ left: Math.floor((width - w) / 2), top: Math.floor((height - h) / 2), width: w, height: h })
+    .toBuffer();
+}
+
 async function generate(prompt, shape) {
   let lastError = null;
   for (const [name, run] of providers()) {
     if ((pausedUntil.get(name) || 0) > Date.now()) continue;
     try {
-      const buffer = await run(prompt, shape);
+      const buffer = await cropTo(await run(prompt, shape), shape);
       log.info('ai image made', { provider: name });
       return buffer;
     } catch (err) {

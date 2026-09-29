@@ -423,6 +423,9 @@ test('free pictures are fetched one at a time and retried, a billing-blocked pro
   const images = await import('../src/images.js');
   const storage = await import('../src/storage.js');
   config.gemini.apiKey = 'test-gemini';
+  config.images.geminiModel = 'test-image-model';
+  const sharp = (await import('sharp')).default;
+  const square = await sharp({ create: { width: 64, height: 64, channels: 3, background: '#888' } }).jpeg().toBuffer();
   let active = 0;
   let peak = 0;
   let geminiCalls = 0;
@@ -441,7 +444,7 @@ test('free pictures are fetched one at a time and retried, a billing-blocked pro
     await new Promise((r) => realSetTimeout(r, 5));
     active--;
     if (freeCalls.length === 2) return new Response('busy', { status: 402 });
-    return new Response(Buffer.from('img'), { status: 200, headers: { 'content-type': 'image/jpeg' } });
+    return new Response(square, { status: 200, headers: { 'content-type': 'image/jpeg' } });
   };
   try {
     const results = await Promise.allSettled([0, 1, 2, 3].map((slot) => images.generateImage('a shop', slot, '919999999999')));
@@ -455,5 +458,31 @@ test('free pictures are fetched one at a time and retried, a billing-blocked pro
     globalThis.fetch = realFetch;
     globalThis.setTimeout = realSetTimeout;
     config.gemini.apiKey = '';
+    config.images.geminiModel = '';
+  }
+});
+
+test('square pictures are cropped to the slot shape', async () => {
+  const { config } = await import('../src/config.js');
+  const images = await import('../src/images.js');
+  const sharp = (await import('sharp')).default;
+  const square = await sharp({ create: { width: 300, height: 300, channels: 3, background: '#468' } }).png().toBuffer();
+  config.cf.accountId = 'acc';
+  config.cf.apiToken = 'tok';
+  const bodies = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ result: { image: square.toString('base64') } }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const out = await images.generateImage('a shop', 0, '919999999999').catch((err) => err);
+    assert.equal(bodies[0].width, undefined);
+    assert.equal(bodies[0].height, undefined);
+    assert.ok(out instanceof Error || out.w / out.h > 1.4);
+  } finally {
+    globalThis.fetch = realFetch;
+    config.cf.accountId = '';
+    config.cf.apiToken = '';
   }
 });

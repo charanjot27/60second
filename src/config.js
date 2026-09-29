@@ -49,7 +49,7 @@ export const config = {
   images: {
     openaiKey: env.OPENAI_API_KEY || '',
     openaiModel: env.OPENAI_IMAGE_MODEL || 'gpt-image-1',
-    geminiModel: env.GEMINI_IMAGE_MODEL ?? 'gemini-2.5-flash-image',
+    geminiModel: env.GEMINI_IMAGE_MODEL || '',
     cfModel: env.CF_IMAGE_MODEL || '@cf/black-forest-labs/flux-1-schnell',
   },
   imageBase: (env.IMAGE_PUBLIC_BASE || '').replace(/\/+$/, ''),
