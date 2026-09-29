@@ -121,14 +121,14 @@ export async function extractBusiness(text, ownerName = '') {
 
   const deadline = Date.now() + config.ai.timeoutMs;
   const attempts = [];
-  if (geminiEnabled()) {
-    attempts.push(['gemini', (ms) => callGemini({ system: SYSTEM_PROMPT, user: text.slice(0, 2000), maxTokens: 1200, temperature: 0.5, timeoutMs: ms, json: true }).then(parseJson)]);
-    attempts.push(['gemini', (ms) => callGemini({ system: SYSTEM_PROMPT, user: text.slice(0, 2000), maxTokens: 1200, temperature: 0.3, timeoutMs: ms, json: true }).then(parseJson)]);
-  }
   if (config.ai.apiKey) {
     for (const model of [config.ai.model, config.ai.fallbackModel].filter(Boolean)) {
       attempts.push([model, (ms) => callModel(model, text, ms)]);
     }
+  }
+  if (geminiEnabled()) {
+    attempts.push(['gemini', (ms) => callGemini({ system: SYSTEM_PROMPT, user: text.slice(0, 2000), maxTokens: 1200, temperature: 0.5, timeoutMs: ms, json: true }).then(parseJson)]);
+    attempts.push(['gemini', (ms) => callGemini({ system: SYSTEM_PROMPT, user: text.slice(0, 2000), maxTokens: 1200, temperature: 0.3, timeoutMs: ms, json: true }).then(parseJson)]);
   }
   let result = null;
   for (const [name, run] of attempts) {
