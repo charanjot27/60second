@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 
 process.env.WA_APP_SECRET = 'test-secret';
+process.env.GEMINI_API_KEY = 'test-key';
 process.env.ROOT_DOMAIN = 'site60.in';
 
 const { slugify, isValidSlug, parseSlugInput, slugProblem } = await import('../src/slug.js');
@@ -292,4 +293,27 @@ test('generated pages render through the shell', async () => {
   assert.ok(html.includes('data-i="0"'));
   assert.ok(html.includes('AI-generated illustrations'));
   assert.ok(html.includes('id="lb"'));
+});
+
+test('generateSitePage parses Gemini sections and retries once', async () => {
+  const { generateSitePage } = await import('../src/generate.js');
+  const css = 'h1{color:red}\n'.repeat(250);
+  const body = '<div class="page"><a href="{{wa}}">{{name}}</a>' + '<p>text</p>'.repeat(300) + '</div>';
+  const good = `===META===\n{"themeColor":"#112233","fonts":[{"family":"Sora","weights":"400;700"}]}\n===CSS===\n${css}\n===BODY===\n${body}\n===END===`;
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    calls.push(1);
+    const text = calls.length === 1 ? 'nonsense' : good;
+    return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text }] } }] }) };
+  };
+  try {
+    const page = await generateSitePage({ businessName: 'Study Room', category: 'Library', services: [], photos: [] }, 'Swiss minimal');
+    assert.equal(calls.length, 2);
+    assert.equal(page.themeColor, '#112233');
+    assert.match(page.fonts, /family=Sora:wght@400;700/);
+    assert.ok(page.body.includes('{{wa}}'));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });

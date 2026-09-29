@@ -1,5 +1,6 @@
 import sanitizeHtml from 'sanitize-html';
 import { config } from './config.js';
+import { log } from './log.js';
 import { callGemini, geminiEnabled } from './gemini.js';
 import { escapeHtml } from './render.js';
 
@@ -16,42 +17,51 @@ const DIRECTIONS = [
   'Warm storefront: cosy colours, big friendly headline, rounded cards, scalloped or wavy section dividers, welcoming tone.',
 ];
 
-const SYSTEM_PROMPT = `You are a senior web designer who builds award-winning, distinctive single-page websites for small local businesses in India.
-You are given facts about ONE business and a design direction. Produce a complete, beautiful, mobile-first one-page website as an HTML fragment plus CSS.
-Reply with ONE JSON object only: {"themeColor":"#rrggbb","fonts":[{"family":"Font Name","weights":"400;700"}],"css":"...","body":"..."}
+const SYSTEM_PROMPT = `You are the creative director and lead front-end engineer of an award-winning design studio. You are building a bespoke, premium, single-page website for ONE small local business in India. The result must look like a custom agency site that would cost thousands: never like a template, never plain, never generic.
 
-HARD RULES
-- "fonts": 1 or 2 Google Fonts families that suit the direction, weights as semicolon-separated numbers. Use them in the CSS.
-- "css": plain CSS only. No @import, no @font-face, no url(...). Use CSS variables, clamp() for type, grid/flex, gradients, CSS shapes and inline SVG for decoration. Mobile-first with @media (min-width:900px) upgrades.
-- "body": an HTML fragment for inside <body>. Allowed: header nav main section article aside footer div span p h1-h4 ul ol li a img figure figcaption button strong em br hr blockquote details summary dl dt dd address small svg and its shapes. NO script, style, link, form, input, iframe, object, or inline style attributes. Use classes only.
-- Interactivity must be CSS-only (details/summary accordions, :hover, :focus-visible, keyframes, marquee strips, and scroll-driven animation guarded with @supports (animation-timeline: view())). Content must be fully visible even if animations do not run: never start elements at opacity:0 without an animation-fill that ends visible.
-- Never invent facts: no prices, years in business, awards, statistics, addresses, opening hours, certifications, testimonials or reviews. Write persuasive copy only from the given description. Generic microcopy such as "Say hello on WhatsApp" is fine.
-- Write all visible copy in the business's language and script (language code is given: en, hi or pa). Keep English placeholders exactly as written.
-- Contrast must be at least 4.5:1 for body text. Tap targets at least 48px. Respect prefers-reduced-motion.
-- Do not include the site footer, the sticky contact bar or the photo lightbox: the system adds them.
+OUTPUT FORMAT (exactly this, no JSON, no markdown fences, no commentary):
+===META===
+{"themeColor":"#rrggbb","fonts":[{"family":"Font Name","weights":"400;600;800"}]}
+===CSS===
+(all the CSS)
+===BODY===
+(the HTML fragment)
+===END===
 
-PLACEHOLDERS (the system fills them safely; use them instead of real values)
+TECHNICAL RULES
+- fonts: 1 or 2 Google Fonts families chosen for the direction (a distinctive display face plus a readable body face). Use them in CSS via font-family.
+- CSS: plain CSS only. No @import, no @font-face, no url(...), no external resources. Write a real design system: :root variables for colours, radii, shadows, spacing and fluid type with clamp(); a consistent spacing rhythm; at least 300 lines of considered CSS. Mobile-first at 360px width with no horizontal scroll (use overflow-x:clip on the page wrapper), then @media (min-width:900px) upgrades with real layout changes (asymmetric grids, sticky elements, overlapping images).
+- BODY: an HTML fragment for inside <body>, wrapped in one <div class="page">. Allowed tags: header nav main section article aside footer div span p h1-h4 ul ol li a img figure figcaption button strong em br hr blockquote details summary dl dt dd address small svg with path circle rect g defs linearGradient radialGradient stop line polyline polygon ellipse. NO script, style, link, form, input, iframe, object and NO inline style attributes: class names only.
+- Motion is CSS-only: keyframes, hover and focus effects, marquee strips, floating shapes, gradient shifts, details/summary accordions, and scroll-driven reveals guarded by @supports (animation-timeline: view()). Everything must be fully visible if animation does not run: never start an element at opacity:0 unless its animation ends visible with animation-fill-mode:both. Respect prefers-reduced-motion.
+- Contrast at least 4.5:1 for text. Tap targets at least 48px. Visible :focus-visible styles.
+- Never invent facts: no prices, years in business, awards, statistics, addresses, opening hours, certifications, testimonials, reviews or client names. Use only the facts given. Generic microcopy is fine.
+- Write ALL visible copy in the business language and script (given as language: en, hi or pa). Keep the English placeholders exactly as written.
+- Copy quality: short, confident, specific to this kind of business, with a clear benefit in each headline. No lorem ipsum, no filler, no cliches such as "welcome to our website". Use at most one or two emojis, or none.
+- Do NOT include the site footer, the sticky bottom contact bar, or the photo lightbox: the system adds them.
+
+PLACEHOLDERS (the system fills them safely, use them instead of real values)
 Text: {{name}} {{category}} {{city}} {{tagline}} {{about}} {{phone}} {{address}}
-Links (use inside href): {{wa}} {{tel}} {{map}}
-Images (use inside src): {{hero_src}} {{img2_src}} {{img3_src}} with sizes {{hero_w}} {{hero_h}} {{img2_w}} {{img2_h}} {{img3_w}} {{img3_h}}
-Repeat block: <template data-each="services">...{{item}} {{n}}...</template> ({{n}} is 01, 02, ...)
-Repeat block: <template data-each="photos">...</template> where each photo must be written exactly as:
-<figure class="ph"><button type="button" data-i="{{i}}"><img src="{{src}}" data-lg="{{lg}}" alt="{{alt}}" width="{{w}}" height="{{h}}" loading="lazy"></button></figure>
-Conditional block: <template data-if="KEY">...</template> where KEY is one of services, photos, hero_img, img2, img3, address, map, tagline, about. Templates may nest one level (a data-each inside a data-if) but data-if inside data-each is not allowed.
+Links (inside href): {{wa}} {{tel}} {{map}}
+Images (inside src): {{hero_src}} {{img2_src}} {{img3_src}} with sizes {{hero_w}} {{hero_h}} {{img2_w}} {{img2_h}} {{img3_w}} {{img3_h}}
+Repeat block: <template data-each="services"> ... {{item}} {{n}} ... </template>   ({{n}} is 01, 02, 03 ...)
+Repeat block for gallery, each photo written exactly as:
+<template data-each="photos"><figure class="ph"><button type="button" data-i="{{i}}"><img src="{{src}}" data-lg="{{lg}}" alt="{{alt}}" width="{{w}}" height="{{h}}" loading="lazy"></button></figure></template>
+Conditional block: <template data-if="KEY"> ... </template> with KEY one of: services photos hero_img img2 img3 address map tagline about. A data-each may sit inside a data-if, but never put data-if inside data-each.
 
-REQUIRED CONTENT AND ORDER
-1. Sticky top navigation with the business name and anchor links (#about #services #gallery #contact) and a WhatsApp button (href="{{wa}}").
-2. Hero with a striking headline built from {{name}} and {{tagline}}, primary WhatsApp button (href="{{wa}}") and a Call button (href="{{tel}}"). The hero cta wrapper must have id="cta". Use {{hero_src}} inside data-if="hero_img"; otherwise make a strong graphic hero from CSS and SVG.
-3. A short decorative marquee or badge strip (CSS animation) using the services or category.
-4. About section (id="about") using {{about}} with {{img2_src}} when available.
-5. Services section (id="services") as an eye-catching grid or bento layout of the services, each with {{n}} or a small SVG icon.
-6. Gallery section (id="gallery") using the photos repeat block, only inside data-if="photos". Add a decorative image band using {{img3_src}} when available.
-7. A "How it works" section with three generic steps (contact on WhatsApp, tell us what you need, we take care of it).
-8. A short FAQ using details/summary with generic questions answered only with facts you were given, or by pointing to WhatsApp.
-9. Contact section (id="contact") with big WhatsApp and Call buttons, {{phone}}, and {{address}} / a directions link ({{map}}) inside conditionals.
+REQUIRED SECTIONS, in this order, each with a clearly different layout but one shared visual language
+1. Sticky top navigation (blurred translucent bar) with the name, anchor links to #about #services #gallery #contact, and a WhatsApp button (href="{{wa}}").
+2. Hero: a huge expressive headline built from {{name}} and {{tagline}} with a typographic twist (gradient or outlined word, mixed weights), supporting line, primary WhatsApp button (href="{{wa}}") and secondary Call button (href="{{tel}}"). The wrapper of these buttons must have id="cta". Show {{hero_src}} inside data-if="hero_img" in a striking frame (mask, clip-path, rotated card, arch, or overlapping layers) with floating decorative shapes and a small badge built from {{category}} and {{city}}. Without an image, build a rich graphic hero from CSS gradients and SVG.
+3. A continuously scrolling marquee strip of the services (or category words) in large type.
+4. About (id="about"): {{about}} with {{img2_src}} when available, an editorial layout with a pull-quote style line taken from {{tagline}}.
+5. Services (id="services"): a bento grid or staggered card layout of every service, each card with {{n}}, an inline SVG icon or shape, and hover lift.
+6. A full-width image band or parallax-style block using {{img3_src}} with an overlaid short statement (only inside data-if="img3").
+7. Gallery (id="gallery"): the photos repeat block in a masonry or mosaic layout with hover zoom, only inside data-if="photos".
+8. How it works: three connected steps (message on WhatsApp, tell us what you need, we take care of it) with a drawn connector line.
+9. FAQ: 3 to 4 details/summary items with generic questions (how do I order or book, can I ask before deciding, how do I reach you) answered only with given facts or by pointing to WhatsApp.
+10. Contact (id="contact"): a bold closing panel with a very large call to action, WhatsApp and Call buttons, {{phone}}, and {{address}} and a directions link ({{map}}) inside data-if.
 
 QUALITY BAR
-Make it look like a custom agency design, not a template: confident typographic hierarchy, deliberate colour palette matched to the business and direction, layered backgrounds, tasteful hover and entrance animations, consistent spacing rhythm, and polished details. Every section must feel different in layout while sharing one visual language.`;
+Deliberate palette (one dominant, one accent, neutrals) that fits the business and direction, with layered backgrounds (gradient meshes, blurred blobs, grain-like patterns from gradients, subtle grids), confident typographic hierarchy with tight leading on display type, generous whitespace, soft shadows and borders, glass or solid cards as the direction demands, animated details (floating shapes, shimmering gradient text, underline sweeps, button glows), and pixel-clean alignment. Make sure it feels expensive and unique, and that a shop owner would be proud to show it.`;
 
 export function pickDirection(salt = '') {
   const n = [...String(salt)].reduce((a, c) => a + c.charCodeAt(0), 0) + Math.floor(Math.random() * 1000);
@@ -244,20 +254,26 @@ export function buildData(site, helpers) {
   };
 }
 
+export function parseSections(raw) {
+  const text = String(raw || '').replace(/^```[a-z]*\n?|```$/gim, '');
+  const meta = /===META===([\s\S]*?)===CSS===/.exec(text)?.[1];
+  const css = /===CSS===([\s\S]*?)===BODY===/.exec(text)?.[1];
+  const bodyMatch = /===BODY===([\s\S]*?)(?:===END===|$)/.exec(text)?.[1];
+  if (!meta || !css || !bodyMatch) throw new Error('Generated page missing sections');
+  const parsedMeta = JSON.parse(meta.slice(meta.indexOf('{'), meta.lastIndexOf('}') + 1));
+  return { meta: parsedMeta, css: css.trim(), body: bodyMatch.trim() };
+}
+
 function validPage(page) {
   return (
-    page &&
-    typeof page.body === 'string' &&
-    typeof page.css === 'string' &&
-    page.body.length > 800 &&
-    page.css.length > 400 &&
+    page.body.length > 2500 &&
+    page.css.length > 2500 &&
     page.body.includes('{{wa}}') &&
     /\{\{\s*name\s*\}\}/.test(page.body)
   );
 }
 
-export async function generateSitePage(site, direction, opts = {}) {
-  if (!geminiEnabled()) return null;
+async function attempt(site, direction, opts, timeoutMs, note) {
   const brief = {
     businessName: site.businessName,
     category: site.category,
@@ -273,22 +289,31 @@ export async function generateSitePage(site, direction, opts = {}) {
   };
   const raw = await callGemini({
     system: SYSTEM_PROMPT,
-    user: `Design the website for this business.\n${JSON.stringify(brief, null, 2)}`,
-    maxTokens: 24000,
+    user: `Design the website for this business.${note ? ` ${note}` : ''}\n${JSON.stringify(brief, null, 2)}`,
+    maxTokens: 30000,
     temperature: 1,
-    timeoutMs: 90000,
-    json: true,
+    timeoutMs,
   });
-  const parsed = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1));
+  const { meta, css, body } = parseSections(raw);
   const page = {
-    themeColor: /^#[0-9a-f]{6}$/i.test(parsed.themeColor || '') ? parsed.themeColor : '#222222',
-    fonts: fontLink(parsed.fonts),
-    css: String(parsed.css || ''),
-    body: String(parsed.body || ''),
+    themeColor: /^#[0-9a-f]{6}$/i.test(meta.themeColor || '') ? meta.themeColor : '#222222',
+    fonts: fontLink(meta.fonts),
+    css,
+    body,
     direction,
   };
-  if (!validPage(page)) throw new Error('Generated page failed validation');
+  if (!validPage(page)) throw new Error(`Generated page too small (${body.length} html, ${css.length} css)`);
   return page;
+}
+
+export async function generateSitePage(site, direction, opts = {}) {
+  if (!geminiEnabled()) return null;
+  try {
+    return await attempt(site, direction, opts, 110000, '');
+  } catch (err) {
+    log.warn('page attempt failed, retrying', { error: err.message });
+    return attempt(site, direction, opts, 80000, 'Your previous answer was rejected. Follow the output format exactly and make the page rich and complete.');
+  }
 }
 
 export function pageCss(css) {

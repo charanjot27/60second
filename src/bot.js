@@ -260,7 +260,10 @@ const HANDLERS = {
         log.warn('page generation failed', { error: err.message });
         return null;
       });
-      return applyEdit(s, { design, page: page ?? null }, '🎨 New design ready');
+      if (!page) {
+        return sendText(s._id, "⚠️ The designer AI didn't answer this time, so your site is unchanged. Please try again in a minute.");
+      }
+      return applyEdit(s, { design, page }, '🎨 New design ready');
     }
 
     if (msg.type === 'location' && msg.location?.lat != null) {
@@ -369,6 +372,7 @@ async function publish(s) {
   const now = new Date();
   let style = d.style === 'advanced' ? 'advanced' : 'basic';
   let extras = {};
+  let designFailed = false;
   if (style === 'advanced') {
     if (!(await allowAdvanced(s._id, config.limits.advancedPerDay))) {
       style = 'basic';
@@ -385,6 +389,7 @@ async function publish(s) {
         }),
       ]);
       extras = { design, aiImages, ...(page ? { page } : {}) };
+      designFailed = !page;
     }
   }
   const site = {
@@ -431,7 +436,11 @@ async function publish(s) {
       `ℹ️ Your number ${formatPhone(s._id)} is shown on the site for the WhatsApp and Call buttons. ` +
       `To show a different number, send: *number 9876543210*\n` +
       `📍 Share your location pin here to add a map.\n` +
-      (style === 'advanced' ? `🎨 Not happy with the look? Send *new design* for a fresh one.\n` : '') +
+      (style === 'advanced'
+        ? designFailed
+          ? `⚠️ The designer AI was busy, so I used a simpler layout. Send *new design* in a minute to try again.\n`
+          : `🎨 Not happy with the look? Send *new design* for a fresh one.\n`
+        : '') +
       `\nMessage me anytime to edit your site.`
   );
 }
