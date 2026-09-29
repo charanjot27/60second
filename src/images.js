@@ -5,8 +5,20 @@ import { processAndUpload } from './storage.js';
 const MODEL = '@cf/black-forest-labs/flux-1-schnell';
 const STYLE = 'professional photograph, natural light, clean composition, no text, no logos, no watermark';
 
+const cloudflareEnabled = () => Boolean(config.cf.accountId && config.cf.apiToken);
+
 export function imagesEnabled() {
-  return Boolean(config.cf.accountId && config.cf.apiToken);
+  return true;
+}
+
+async function generateFree(prompt) {
+  const seed = Math.floor(Math.random() * 1e9);
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(`${prompt}, ${STYLE}`.slice(0, 900))}?width=1024&height=1280&nologo=true&model=flux&seed=${seed}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(50000) });
+  if (!res.ok || !String(res.headers.get('content-type')).startsWith('image/')) {
+    throw new Error(`Free image API ${res.status}`);
+  }
+  return Buffer.from(await res.arrayBuffer());
 }
 
 export function fallbackPrompts(site) {
@@ -19,6 +31,7 @@ export function fallbackPrompts(site) {
 }
 
 async function generate(prompt) {
+  if (!cloudflareEnabled()) return generateFree(prompt);
   const res = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${config.cf.accountId}/ai/run/${MODEL}`,
     {
@@ -39,7 +52,6 @@ async function generate(prompt) {
 }
 
 export async function generateSiteImages(prompts, ownerPhone) {
-  if (!imagesEnabled()) return [];
   const results = await Promise.allSettled(
     prompts.slice(0, 3).map(async (prompt) => {
       const buffer = await generate(prompt);

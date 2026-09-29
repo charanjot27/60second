@@ -222,3 +222,74 @@ test('renderAdvanced escapes content and handles every layout', () => {
     }
   }
 });
+
+const { fillTemplate, sanitizeBody, sanitizeCss, buildData } = await import('../src/generate.js');
+
+test('sanitizeBody strips scripts, forms, external images and bad links', () => {
+  const out = sanitizeBody(
+    '<section class="a" onclick="x()" style="color:red"><script>alert(1)</script><form><input></form>' +
+      '<img src="https://evil.example/x.png"><a href="javascript:alert(1)">x</a>' +
+      '<a href="https://evil.example/">y</a><a href="https://wa.me/919812345678">wa</a><iframe src="https://x"></iframe></section>'
+  );
+  assert.ok(!/script|form|input|onclick|style=|evil|javascript|iframe/i.test(out.replace('wa.me', '')));
+  assert.ok(out.includes('https://wa.me/919812345678'));
+});
+
+test('sanitizeCss removes imports, urls and font faces', () => {
+  const out = sanitizeCss('@import url(https://x/y.css);@font-face{src:url(a)}a{background:url(https://evil/x.png);color:red}');
+  assert.ok(!/import|font-face|url|evil/i.test(out));
+  assert.ok(out.includes('color:red'));
+});
+
+test('fillTemplate handles conditionals, nested loops and escaping', () => {
+  const site = {
+    businessName: 'Sweet <b>Crumbs',
+    category: 'Bakery',
+    city: 'Ludhiana',
+    tagline: '',
+    description: 'Cakes',
+    services: ['Cakes', 'Pies'],
+    phone: '919812345678',
+    photos: [photo(1), photo(2)],
+    aiImages: [],
+  };
+  const data = buildData(site, { formatPhone: (p) => `+${p}` });
+  const html = fillTemplate(
+    '<h1>{{name}}</h1><template data-if="tagline"><p>{{tagline}}</p></template><template data-if="services"><ul><template data-each="services"><li>{{n}} {{item}}</li></template></ul></template>' +
+      '<template data-if="photos"><template data-each="photos"><i data-i="{{i}}">{{alt}}</i></template></template><a href="{{wa}}">go</a>',
+    data
+  );
+  assert.ok(html.includes('Sweet &lt;b&gt;Crumbs'));
+  assert.ok(!html.includes('<p>'));
+  assert.ok(html.includes('<li>01 Cakes</li><li>02 Pies</li>'));
+  assert.ok(html.includes('data-i="1"'));
+  assert.ok(html.includes('https://wa.me/919812345678'));
+});
+
+test('generated pages render through the shell', async () => {
+  const body =
+    '<header class="top"><a href="{{wa}}">WhatsApp</a></header><section id="cta"><h1>{{name}}</h1><a class="b" href="{{tel}}">Call</a></section>' +
+    '<template data-if="hero_img"><img src="{{hero_src}}" width="{{hero_w}}" height="{{hero_h}}" alt=""></template>' +
+    '<template data-if="photos"><div id="gallery"><template data-each="photos"><figure class="ph"><button type="button" data-i="{{i}}"><img src="{{src}}" data-lg="{{lg}}" alt="{{alt}}" width="{{w}}" height="{{h}}"></button></figure></template></div></template>'.padEnd(900, ' ');
+  const site = {
+    slug: 'sweetcrumbs',
+    ownerPhone: '919812345678',
+    phone: '919812345678',
+    businessName: 'Sweet Crumbs',
+    category: 'Bakery',
+    city: 'Ludhiana',
+    description: 'Cakes',
+    services: ['Cakes'],
+    photos: [photo(1)],
+    aiImages: [{ ...photo(2), ai: true }],
+    style: 'advanced',
+    page: { themeColor: '#aa3355', fonts: 'https://fonts.googleapis.com/css2?family=Sora:wght@400;700&display=swap', css: 'h1{color:red}'.padEnd(500, ' '), body },
+  };
+  const { renderAdvanced: render } = await import('../src/advanced.js');
+  const html = render(site);
+  assert.ok(html.includes('<h1>Sweet Crumbs</h1>'));
+  assert.ok(html.includes('https://img/2-lg.webp'));
+  assert.ok(html.includes('data-i="0"'));
+  assert.ok(html.includes('AI-generated illustrations'));
+  assert.ok(html.includes('id="lb"'));
+});

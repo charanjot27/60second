@@ -24,7 +24,11 @@ export const config = {
     apiKey: env.ANTHROPIC_API_KEY || '',
     model: env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
     fallbackModel: env.ANTHROPIC_FALLBACK_MODEL || '',
-    timeoutMs: 15000,
+    timeoutMs: 25000,
+  },
+  gemini: {
+    apiKey: env.GEMINI_API_KEY || '',
+    model: env.GEMINI_MODEL || 'gemini-2.5-flash',
   },
   mongo: {
     url: env.MONGO_URL || 'mongodb://127.0.0.1:27017',

@@ -8,7 +8,8 @@ import { invalidate } from './site.js';
 import { enqueue } from './queue.js';
 import { allowAiCall, allowPhoto, allowAdvanced, allowNewSite, track } from './limits.js';
 import { makeDesign } from './design.js';
-import { generateSiteImages, fallbackPrompts, imagesEnabled } from './images.js';
+import { generateSiteImages, fallbackPrompts } from './images.js';
+import { generateSitePage, pickDirection } from './generate.js';
 import { formatPhone } from './render.js';
 import { hashPhone, log } from './log.js';
 
@@ -248,7 +249,18 @@ const HANDLERS = {
       if (site.style !== 'advanced') {
         return sendText(s._id, 'New designs are available for Advanced websites. Send *restart* to create an Advanced site.');
       }
-      return applyEdit(s, { design: makeDesign(site, String(Date.now())) }, '🎨 New design ready');
+      if (!(await allowAdvanced(s._id, config.limits.advancedPerDay))) {
+        return sendText(s._id, "You've reached today's limit for new designs. Please try again tomorrow.");
+      }
+      await sendText(s._id, '🎨 Creating a new design. This takes about a minute...');
+      const design = makeDesign(site, String(Date.now()));
+      const page = await generateSitePage({ ...site, design }, pickDirection(site.slug), {
+        hasImages: Boolean(site.aiImages?.length || site.photos?.length),
+      }).catch((err) => {
+        log.warn('page generation failed', { error: err.message });
+        return null;
+      });
+      return applyEdit(s, { design, page: page ?? null }, '🎨 New design ready');
     }
 
     if (msg.type === 'location' && msg.location?.lat != null) {
@@ -362,10 +374,17 @@ async function publish(s) {
       style = 'basic';
       await sendText(s._id, "You've reached today's limit for advanced designs, so I'll publish the basic version.");
     } else {
-      await sendText(s._id, imagesEnabled() ? '🎨 Designing your website and creating pictures. About 20 seconds...' : '🎨 Designing your website...');
+      await sendText(s._id, '🎨 Designing your website and creating pictures. This takes about a minute...');
       const prompts = d.imagePrompts?.length ? d.imagePrompts : fallbackPrompts(d);
-      const aiImages = await generateSiteImages(prompts, s._id);
-      extras = { design: makeDesign(d, String(Date.now())), aiImages };
+      const design = makeDesign(d, String(Date.now()));
+      const [aiImages, page] = await Promise.all([
+        generateSiteImages(prompts, s._id),
+        generateSitePage({ ...d, design }, pickDirection(d.slug), { hasImages: true }).catch((err) => {
+          log.warn('page generation failed', { error: err.message });
+          return null;
+        }),
+      ]);
+      extras = { design, aiImages, ...(page ? { page } : {}) };
     }
   }
   const site = {

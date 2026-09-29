@@ -93,6 +93,8 @@ test/
 | `MONGO_URL`, `MONGO_DB` | Database |
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Photo uploads |
 | `IMAGE_PUBLIC_BASE` | Photo URLs on sites |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | Free Google Gemini key: writes site copy and designs Advanced sites |
+| `CF_ACCOUNT_ID`, `CF_AI_TOKEN` | Optional Cloudflare Workers AI for AI-generated pictures |
 | `NODE_ENV`, `PORT` | Server |
 
 ## Local development

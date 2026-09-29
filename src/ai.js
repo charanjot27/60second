@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { config } from './config.js';
 import { log } from './log.js';
 import { isDisallowedText } from './moderation.js';
+import { callGemini, geminiEnabled } from './gemini.js';
 
 export const THEMES = ['rose', 'forest', 'ocean', 'sunset', 'slate', 'plum'];
 
@@ -118,17 +119,26 @@ export async function extractBusiness(text, ownerName = '') {
   const key = crypto.createHash('sha256').update(text.trim().toLowerCase()).digest('hex');
   if (cache.has(key)) return cache.get(key);
 
-  const attempts = [config.ai.model, config.ai.model, config.ai.fallbackModel].filter(Boolean);
   const deadline = Date.now() + config.ai.timeoutMs;
+  const attempts = [];
+  if (geminiEnabled()) {
+    attempts.push(['gemini', (ms) => callGemini({ system: SYSTEM_PROMPT, user: text.slice(0, 2000), maxTokens: 1200, temperature: 0.5, timeoutMs: ms, json: true }).then(parseJson)]);
+    attempts.push(['gemini', (ms) => callGemini({ system: SYSTEM_PROMPT, user: text.slice(0, 2000), maxTokens: 1200, temperature: 0.3, timeoutMs: ms, json: true }).then(parseJson)]);
+  }
+  if (config.ai.apiKey) {
+    for (const model of [config.ai.model, config.ai.fallbackModel].filter(Boolean)) {
+      attempts.push([model, (ms) => callModel(model, text, ms)]);
+    }
+  }
   let result = null;
-  for (const model of attempts) {
+  for (const [name, run] of attempts) {
     const remaining = deadline - Date.now();
-    if (!config.ai.apiKey || remaining < 1000) break;
+    if (remaining < 1000) break;
     try {
-      result = sanitize(await callModel(model, text, remaining), text, ownerName);
+      result = sanitize(await run(remaining), text, ownerName);
       break;
     } catch (err) {
-      log.warn('ai call failed', { model, error: err.message });
+      log.warn('ai call failed', { model: name, error: err.message });
     }
   }
   const final = result || fallbackCopy(text, ownerName);

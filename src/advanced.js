@@ -1,6 +1,7 @@
 import { config, siteUrl, botLink } from './config.js';
 import { FONT_PAIRS, palette } from './design.js';
 import { SITE_SCRIPT, escapeHtml as e, formatPhone } from './render.js';
+import { buildData, fillTemplate, sanitizeBody, pageCss } from './generate.js';
 
 const WA_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2c-1.5 0-3-.4-4.3-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.4.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.8 11.9 11.9 0 0 0 4.6 4c1.7.7 2.3.8 3.2.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3Z"/></svg>';
@@ -100,7 +101,93 @@ function galleryItem(p, i, total, name, tag) {
   return `<figure class="ph"><button type="button" data-i="${i}" aria-label="Open photo ${i + 1} of ${total}"><img src="${e(p.sm)}" srcset="${e(p.sm)} 480w, ${e(p.lg)} 1200w" sizes="(min-width:900px) 33vw, 90vw" width="${Number(p.w) || 1200}" height="${Number(p.h) || 1200}" alt="${e(`${name} photo ${i + 1}`)}" data-lg="${e(p.lg)}" loading="lazy" decoding="async"></button>${tag ? '<span class="tag">AI illustration</span>' : ''}</figure>`;
 }
 
+const SHELL_CSS = `*,*::before,*::after{box-sizing:border-box}html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{margin:0;-webkit-font-smoothing:antialiased;padding-top:env(safe-area-inset-top)}img{max-width:100%;display:block}
+.sys-footer{padding:28px 20px calc(96px + env(safe-area-inset-bottom));text-align:center;font-size:14px;opacity:.85}
+.sys-footer p{margin:4px 0}.sys-footer a{font-weight:600}
+.bar{position:fixed;left:0;right:0;bottom:0;z-index:50;display:flex;gap:10px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:rgba(255,255,255,.92);color:#111;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid rgba(0,0,0,.12);transform:translateY(110%);transition:transform .25s ease}
+.bar.on{transform:none}
+.bar a{flex:1 1 0;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;border-radius:999px;font-weight:600;text-decoration:none;border:2px solid #111;color:#111}
+.bar a:first-child{background:#111;color:#fff}.bar svg{width:20px;height:20px}
+.lb{border:0;padding:0;margin:0;width:100vw;height:100dvh;max-width:none;max-height:none;background:#000;color:#fff}
+.lb::backdrop{background:#000}.lb img{width:100%;height:100%;object-fit:contain}
+.lb button{position:absolute;display:grid;place-items:center;width:52px;height:52px;border:0;border-radius:999px;background:rgba(255,255,255,.16);color:#fff;font-size:30px;line-height:1;cursor:pointer}
+.lb .x{top:calc(12px + env(safe-area-inset-top));right:12px}
+.lb .prev,.lb .next{top:50%;transform:translateY(-50%)}.lb .prev{left:12px}.lb .next{right:12px}
+.lb .n{position:absolute;left:0;right:0;bottom:calc(16px + env(safe-area-inset-bottom));margin:0;text-align:center;font-size:14px;opacity:.85}
+@media (min-width:900px){.bar{display:none}.sys-footer{padding-bottom:40px}}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;animation-iteration-count:1!important;transition:none!important;scroll-behavior:auto!important}}`;
+
+function renderGenerated(site) {
+  const page = site.page;
+  const url = site.customDomain ? `https://${site.customDomain}` : siteUrl(site.slug);
+  const data = buildData(site, { formatPhone });
+  const body = sanitizeBody(fillTemplate(page.body, data));
+  const own = (site.photos || []).filter((x) => !x.ai);
+  const ai = (site.aiImages || []).filter((x) => x.lg);
+  const og = ai[0] || own[0];
+  const title = site.category && site.city
+    ? `${site.businessName}, ${site.category} in ${site.city}`
+    : site.businessName;
+  const description = site.tagline || site.description?.slice(0, 160) || title;
+  const phone = data.scalars.tel.slice(4);
+  const hasCta = body.includes('id="cta"');
+  const gallery = data.lists.photos;
+  const lightbox = gallery.length
+    ? `<dialog class="lb" id="lb" aria-label="Photos"><img alt=""><button type="button" class="x" aria-label="Close">×</button>${
+        gallery.length > 1
+          ? '<button type="button" class="prev" aria-label="Previous photo">‹</button><button type="button" class="next" aria-label="Next photo">›</button>'
+          : ''
+      }<p class="n" aria-live="polite"></p></dialog>`
+    : '';
+  const ld = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'LocalBusiness',
+    name: site.businessName,
+    description: site.description || undefined,
+    url,
+    telephone: phone,
+    image: own.map((x) => x.lg),
+    address: site.city ? { '@type': 'PostalAddress', addressLocality: site.city, addressCountry: 'IN' } : undefined,
+  })
+    .replace(/</g, '\u003c')
+    .replace(/\u2028|\u2029/g, '');
+
+  return `<!doctype html>
+<html lang="${e(site.language || 'en')}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>${e(title)}</title>
+<meta name="description" content="${e(description)}">
+<link rel="canonical" href="${e(url)}/">
+<meta name="theme-color" content="${e(page.themeColor || '#222222')}">
+<meta property="og:type" content="website">
+<meta property="og:title" content="${e(title)}">
+<meta property="og:description" content="${e(description)}">
+<meta property="og:url" content="${e(url)}">
+${og ? `<meta property="og:image" content="${e(og.lg)}">` : ''}
+<meta name="twitter:card" content="${og ? 'summary_large_image' : 'summary'}">
+${page.fonts ? `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="${e(page.fonts)}">` : ''}
+<script type="application/ld+json">${ld}</script>
+<style>${SHELL_CSS}${pageCss(page.css)}</style>
+</head>
+<body>
+${body}
+<footer class="sys-footer">
+<p>Made on WhatsApp in 60 seconds with ${e(config.brand)}. <a href="${e(botLink(`Hi, I want a website like ${site.slug}`))}">Make yours</a></p>
+${ai.length ? '<p>Some pictures are AI-generated illustrations.</p>' : ''}
+<p><a href="mailto:${e(config.abuseEmail)}?subject=${encodeURIComponent(`Report ${site.slug}`)}">Report this site</a></p>
+</footer>
+<nav class="bar${hasCta ? '' : ' on'}" id="bar" aria-label="Contact"><a href="${e(data.scalars.wa)}">${WA_ICON}WhatsApp</a><a href="${e(data.scalars.tel)}">${CALL_ICON}Call</a></nav>
+${lightbox}
+<script>${SITE_SCRIPT}</script>
+</body>
+</html>`;
+}
+
 export function renderAdvanced(site) {
+  if (site.page?.body) return renderGenerated(site);
   const d = site.design;
   const p = palette(d);
   const font = FONT_PAIRS[d.font] || FONT_PAIRS[0];
