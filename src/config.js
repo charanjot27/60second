@@ -22,10 +22,10 @@ export const config = {
   },
   ai: {
     apiKey: env.ANTHROPIC_API_KEY || '',
-    model: env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
+    model: env.ANTHROPIC_MODEL || 'claude-opus-5-5',
     fallbackModel: env.ANTHROPIC_FALLBACK_MODEL || '',
     designModel: env.ANTHROPIC_DESIGN_MODEL || 'claude-opus-5-5',
-    timeoutMs: 25000,
+    timeoutMs: 60000,
   },
   gemini: {
     apiKey: env.GEMINI_API_KEY || '',

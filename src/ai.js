@@ -94,7 +94,7 @@ function parseJson(text) {
 }
 
 async function callModel(model, text, timeoutMs) {
-  const out = await callClaude({ model, system: SYSTEM_PROMPT, user: text.slice(0, 2000), maxTokens: 900, timeoutMs });
+  const out = await callClaude({ model, system: SYSTEM_PROMPT, user: text.slice(0, 2000), maxTokens: 6000, effort: 'medium', timeoutMs });
   return parseJson(out);
 }
 
