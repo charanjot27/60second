@@ -417,3 +417,43 @@ test('enhance script is valid and wired into generated pages', async () => {
     assert.ok(ENHANCE_SCRIPT.includes(hook), hook);
   }
 });
+
+test('free pictures are fetched one at a time and retried, a billing-blocked provider is paused', async () => {
+  const { config } = await import('../src/config.js');
+  const images = await import('../src/images.js');
+  const storage = await import('../src/storage.js');
+  config.gemini.apiKey = 'test-gemini';
+  let active = 0;
+  let peak = 0;
+  let geminiCalls = 0;
+  const freeCalls = [];
+  const realFetch = globalThis.fetch;
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn) => realSetTimeout(fn, 0);
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('generativelanguage')) {
+      geminiCalls++;
+      return new Response('{"error":{"code":429}}', { status: 429 });
+    }
+    freeCalls.push(url);
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise((r) => realSetTimeout(r, 5));
+    active--;
+    if (freeCalls.length === 2) return new Response('busy', { status: 402 });
+    return new Response(Buffer.from('img'), { status: 200, headers: { 'content-type': 'image/jpeg' } });
+  };
+  try {
+    const results = await Promise.allSettled([0, 1, 2, 3].map((slot) => images.generateImage('a shop', slot, '919999999999')));
+    assert.equal(peak, 1);
+    assert.equal(freeCalls.length, 5);
+    assert.ok(results.every((r) => r.status === 'rejected' || r.value));
+    const before = geminiCalls;
+    await images.generateImage('a shop', 0, '919999999999').catch(() => {});
+    assert.equal(geminiCalls, before);
+  } finally {
+    globalThis.fetch = realFetch;
+    globalThis.setTimeout = realSetTimeout;
+    config.gemini.apiKey = '';
+  }
+});

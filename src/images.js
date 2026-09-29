@@ -13,6 +13,19 @@ const SHAPES = {
 };
 const SLOT_SHAPES = ['wide', 'tall', 'wide', 'square'];
 
+const HOUR = 60 * 60 * 1000;
+const pausedUntil = new Map();
+let freeQueue = Promise.resolve();
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+class ProviderError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.status = status;
+  }
+}
+
 const full = (prompt) => `${prompt}. ${STYLE}`.slice(0, 1800);
 
 async function viaOpenAI(prompt, shape) {
@@ -22,7 +35,7 @@ async function viaOpenAI(prompt, shape) {
     body: JSON.stringify({ model: config.images.openaiModel, prompt: full(prompt), size: shape.openai, quality: 'high', n: 1 }),
     signal: AbortSignal.timeout(180000),
   });
-  if (!res.ok) throw new Error(`OpenAI image ${res.status}: ${(await res.text()).slice(0, 160)}`);
+  if (!res.ok) throw new ProviderError(`OpenAI image ${res.status}: ${(await res.text()).slice(0, 160)}`, res.status);
   const b64 = (await res.json())?.data?.[0]?.b64_json;
   if (!b64) throw new Error('OpenAI returned no image');
   return Buffer.from(b64, 'base64');
@@ -41,7 +54,7 @@ async function viaGemini(prompt, shape) {
       signal: AbortSignal.timeout(120000),
     }
   );
-  if (!res.ok) throw new Error(`Gemini image ${res.status}: ${(await res.text()).slice(0, 160)}`);
+  if (!res.ok) throw new ProviderError(`Gemini image ${res.status}: ${(await res.text()).slice(0, 160)}`, res.status);
   const parts = (await res.json())?.candidates?.[0]?.content?.parts || [];
   const data = parts.find((p) => p.inlineData?.data)?.inlineData.data;
   if (!data) throw new Error('Gemini returned no image');
@@ -58,21 +71,41 @@ async function viaCloudflare(prompt, shape) {
       signal: AbortSignal.timeout(60000),
     }
   );
-  if (!res.ok) throw new Error(`Cloudflare image ${res.status}: ${(await res.text()).slice(0, 160)}`);
+  if (!res.ok) throw new ProviderError(`Cloudflare image ${res.status}: ${(await res.text()).slice(0, 160)}`, res.status);
   if (String(res.headers.get('content-type')).startsWith('image/')) return Buffer.from(await res.arrayBuffer());
   const b64 = (await res.json())?.result?.image;
   if (!b64) throw new Error('Cloudflare returned no image');
   return Buffer.from(b64, 'base64');
 }
 
-async function viaFree(prompt, shape) {
+async function freeOnce(prompt, shape) {
   const seed = Math.floor(Math.random() * 1e9);
   const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(full(prompt).slice(0, 900))}?width=${shape.w}&height=${shape.h}&nologo=true&model=flux&seed=${seed}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(90000) });
   if (!res.ok || !String(res.headers.get('content-type')).startsWith('image/')) {
-    throw new Error(`Free image API ${res.status}`);
+    throw new ProviderError(`Free image API ${res.status}`, res.status);
   }
   return Buffer.from(await res.arrayBuffer());
+}
+
+async function freeWithRetry(prompt, shape) {
+  let lastError = null;
+  for (const wait of [0, 4000, 10000, 20000]) {
+    if (wait) await sleep(wait);
+    try {
+      return await freeOnce(prompt, shape);
+    } catch (err) {
+      lastError = err;
+      if (![402, 429, 500, 502, 503].includes(err.status)) break;
+    }
+  }
+  throw lastError;
+}
+
+function viaFree(prompt, shape) {
+  const job = freeQueue.then(() => freeWithRetry(prompt, shape));
+  freeQueue = job.catch(() => {});
+  return job;
 }
 
 function providers() {
@@ -87,13 +120,15 @@ function providers() {
 async function generate(prompt, shape) {
   let lastError = null;
   for (const [name, run] of providers()) {
+    if ((pausedUntil.get(name) || 0) > Date.now()) continue;
     try {
       const buffer = await run(prompt, shape);
       log.info('ai image made', { provider: name });
       return buffer;
     } catch (err) {
       lastError = err;
-      log.warn('ai image provider failed', { provider: name, error: err.message });
+      if (name !== 'free' && [401, 402, 403, 429].includes(err.status)) pausedUntil.set(name, Date.now() + 6 * HOUR);
+      log.warn('ai image provider failed', { provider: name, error: err.message.slice(0, 200) });
     }
   }
   throw lastError;
