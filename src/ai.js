@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { config } from './config.js';
 import { log } from './log.js';
 import { isDisallowedText } from './moderation.js';
+import { callClaude } from './claude.js';
 import { callGemini, geminiEnabled } from './gemini.js';
 
 export const THEMES = ['rose', 'forest', 'ocean', 'sunset', 'slate', 'plum'];
@@ -93,25 +94,7 @@ function parseJson(text) {
 }
 
 async function callModel(model, text, timeoutMs) {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': config.ai.apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 700,
-      temperature: 0.4,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: text.slice(0, 2000) }],
-    }),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  if (!res.ok) throw new Error(`AI API ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const body = await res.json();
-  const out = (body.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('');
+  const out = await callClaude({ model, system: SYSTEM_PROMPT, user: text.slice(0, 2000), maxTokens: 900, timeoutMs });
   return parseJson(out);
 }
 

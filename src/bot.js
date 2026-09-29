@@ -6,18 +6,21 @@ import { processAndUpload, deletePhotos } from './storage.js';
 import { isTaken, suggestSlug, parseSlugInput, slugProblem } from './slug.js';
 import { invalidate } from './site.js';
 import { enqueue } from './queue.js';
-import { allowAiCall, allowPhoto, allowAdvanced, allowNewSite, track } from './limits.js';
+import { allowAiCall, allowPhoto, allowAdvanced, allowNewSite, allowEdit, track } from './limits.js';
 import { makeDesign } from './design.js';
-import { generateSiteImages, fallbackPrompts } from './images.js';
+import { generateSiteImages, generateImage, fallbackPrompts } from './images.js';
 import { callClaudeRaw, claudeEnabled } from './claude.js';
-import { generateSitePage, pickDirection } from './generate.js';
+import { createArtDirection, generateSitePage, editSite } from './generate.js';
 import { formatPhone } from './render.js';
+import { isDisallowedText } from './moderation.js';
 import { hashPhone, log } from './log.js';
 
 const ROOT = config.rootDomain;
 const MAX_PHOTOS = config.limits.maxPhotos;
 const RESTART = new Set(['restart', 'reset', 'start over', 'start again']);
 const DELETE = new Set(['delete', 'delete my site', 'delete site', 'delete website', 'delete my website']);
+const CHAT = new Set(['hi', 'hii', 'hello', 'hey', 'menu', 'help', 'ok', 'okay', 'thanks', 'thank you', 'namaste', 'sat sri akal', 'start']);
+const HISTORY = 5;
 const DONE = new Set(['done', 'photos_done', 'skip', 'skip_photos', 'finish']);
 const DROP_SESSION = Symbol('drop');
 const photoTimers = new Map();
@@ -77,8 +80,9 @@ async function modelCheck(s) {
       model: config.ai.designModel,
       system: 'Reply with one short sentence.',
       user: 'Say hello.',
-      maxTokens: 30,
-      timeoutMs: 30000,
+      maxTokens: 2000,
+      effort: 'low',
+      timeoutMs: 60000,
     });
     return sendText(
       s._id,
@@ -251,6 +255,16 @@ const HANDLERS = {
     }
     s.slug = site.slug;
 
+    if (cmd === 'edit_about' && site.page?.body) {
+      return sendText(
+        s._id,
+        'Just type what you want to change, in your own words. For example:\n' +
+          '• _Make the colours dark green and gold_\n' +
+          '• _Add home loans to our services_\n' +
+          '• _Make the headline shorter and bolder_\n' +
+          '• _Change the top picture to a modern house at night_'
+      );
+    }
     if (cmd === 'edit_about') {
       s.state = 'ASK_ABOUT';
       s.editing = 'about';
@@ -269,25 +283,23 @@ const HANDLERS = {
     if (cmd === 'get_link') return sendText(s._id, siteUrl(site.slug));
 
     if (cmd === 'new design') {
-      if (site.style !== 'advanced') {
-        return sendText(s._id, 'New designs are available for Advanced websites. Send *restart* to create an Advanced site.');
-      }
       if (!(await allowAdvanced(s._id, config.limits.advancedPerDay))) {
         return sendText(s._id, "You've reached today's limit for new designs. Please try again tomorrow.");
       }
-      await sendText(s._id, '🎨 Creating a new design. This takes 1 to 3 minutes...');
-      const design = makeDesign(site, String(Date.now()));
-      const page = await generateSitePage({ ...site, design }, pickDirection(site.slug), {
-        hasImages: Boolean(site.aiImages?.length || site.photos?.length),
-      }).catch((err) => {
-        log.warn('page generation failed', { error: err.message });
-        return null;
-      });
-      if (!page) {
+      await sendText(s._id, '🎨 Creating a completely new design with new pictures. This takes 3 to 5 minutes...');
+      const made = await designSite(site, s._id);
+      if (!made.page) {
         return sendText(s._id, "⚠️ The designer AI didn't answer this time, so your site is unchanged. Please try again in a minute.");
       }
-      return applyEdit(s, { design, page }, '🎨 New design ready');
+      await saveHistory(site);
+      return applyEdit(
+        s,
+        { style: 'advanced', design: made.design, page: made.page, ...(made.aiImages.length ? { aiImages: made.aiImages } : {}) },
+        '🎨 New design ready (send *undo* to go back)'
+      );
     }
+
+    if (cmd === 'undo') return undoEdit(s, site);
 
     if (msg.type === 'location' && msg.location?.lat != null) {
       return applyEdit(s, { location: msg.location }, '📍 Location added');
@@ -298,6 +310,10 @@ const HANDLERS = {
       const phone = normalizePhone(numberMatch[1]);
       if (!phone) return sendText(s._id, 'That number looks wrong. Send it like: number 9876543210');
       return applyEdit(s, { phone }, `Contact number changed to ${formatPhone(phone)}`);
+    }
+
+    if (msg.type === 'text' && !CHAT.has(cmd) && text.length >= 6 && /\s/.test(text)) {
+      return chatEdit(s, site, text);
     }
 
     return liveMenu(s);
@@ -401,18 +417,10 @@ async function publish(s) {
       style = 'basic';
       await sendText(s._id, "You've reached today's limit for advanced designs, so I'll publish the basic version.");
     } else {
-      await sendText(s._id, '🎨 Designing your website and creating pictures. This takes 1 to 3 minutes...');
-      const prompts = d.imagePrompts?.length ? d.imagePrompts : fallbackPrompts(d);
-      const design = makeDesign(d, String(Date.now()));
-      const [aiImages, page] = await Promise.all([
-        generateSiteImages(prompts, s._id),
-        generateSitePage({ ...d, design }, pickDirection(d.slug), { hasImages: true }).catch((err) => {
-          log.warn('page generation failed', { error: err.message });
-          return null;
-        }),
-      ]);
-      extras = { design, aiImages, ...(page ? { page } : {}) };
-      designFailed = !page;
+      await sendText(s._id, '🎨 Designing your website and creating its pictures. This takes 3 to 5 minutes, I will send the link here...');
+      const made = await designSite(d, s._id);
+      extras = { design: made.design, aiImages: made.aiImages, ...(made.page ? { page: made.page } : {}) };
+      designFailed = !made.page;
     }
   }
   const site = {
@@ -464,8 +472,80 @@ async function publish(s) {
           ? `⚠️ The designer AI was busy, so I used a simpler layout. Send *new design* in a minute to try again.\n`
           : `🎨 Not happy with the look? Send *new design* for a fresh one.\n`
         : '') +
-      `\nMessage me anytime to edit your site.`
+      `\n✏️ To change anything, just type it here in your own words, for example _"make the colours dark blue"_. Send *undo* to go back.`
   );
+}
+
+async function designSite(site, ownerPhone) {
+  const design = makeDesign(site, String(Date.now()));
+  const brief = await createArtDirection(site);
+  const prompts = brief?.imagePrompts?.length ? brief.imagePrompts : site.imagePrompts?.length ? site.imagePrompts : fallbackPrompts(site);
+  const [aiImages, page] = await Promise.all([
+    generateSiteImages(prompts, ownerPhone),
+    generateSitePage({ ...site, design }, brief).catch((err) => {
+      log.warn('page generation failed', { error: err.message });
+      return null;
+    }),
+  ]);
+  return { design, aiImages, page };
+}
+
+function snapshot(site) {
+  const keys = ['style', 'businessName', 'tagline', 'description', 'services', 'city', 'category', 'design', 'page', 'aiImages'];
+  return Object.fromEntries(keys.filter((k) => site[k] !== undefined).map((k) => [k, site[k]]));
+}
+
+async function saveHistory(site) {
+  await sites.updateOne(
+    { _id: site._id },
+    { $push: { history: { $each: [{ at: new Date(), ...snapshot(site) }], $slice: -HISTORY } } }
+  );
+}
+
+async function undoEdit(s, site) {
+  const last = site.history?.at(-1);
+  if (!last) return sendText(s._id, 'There is nothing to undo.');
+  const { at, ...fields } = last;
+  await sites.updateOne({ _id: site._id }, { $pop: { history: 1 } });
+  return applyEdit(s, fields, '↩️ Previous version restored');
+}
+
+async function chatEdit(s, site, request) {
+  if (!(await allowEdit(s._id, config.limits.editsPerDay))) {
+    return sendText(s._id, "You've reached today's limit for changes. Please try again tomorrow.");
+  }
+  if (isDisallowedText(request)) {
+    return sendText(s._id, "Sorry, I can't add that to your website.");
+  }
+  await sendText(s._id, site.page?.body ? '✏️ Working on your change. This takes 1 to 4 minutes...' : '✏️ Updating your website...');
+  let result;
+  try {
+    result = await editSite(site, request);
+  } catch (err) {
+    log.warn('chat edit failed', { error: err.message });
+    return sendText(s._id, "⚠️ I couldn't make that change right now. Your website is unchanged, please try again in a minute.");
+  }
+  const { summary, fields, images, page } = result;
+  if (isDisallowedText(...Object.values(fields).flat())) {
+    return sendText(s._id, "Sorry, I can't add that to your website.");
+  }
+  const update = { ...fields };
+  if (page) update.page = { ...site.page, ...page };
+  if (images.length) {
+    const aiImages = [...(site.aiImages || [])];
+    const made = await Promise.allSettled(images.map((x) => generateImage(x.prompt, x.slot - 1, s._id)));
+    made.forEach((r, i) => {
+      if (r.status === 'fulfilled') aiImages[images[i].slot - 1] = r.value;
+      else log.warn('ai image failed', { error: r.reason?.message });
+    });
+    update.aiImages = aiImages.filter(Boolean);
+  }
+  if (!Object.keys(update).length) {
+    return sendText(s._id, summary || "I couldn't find anything to change. Tell me in a few words what you'd like different.");
+  }
+  await saveHistory(site);
+  track(s._id, 'chat_edit', { fields: Object.keys(update) });
+  return applyEdit(s, update, `${summary || 'Done'}\n\nSend *undo* to go back`);
 }
 
 async function applyEdit(s, fields, label) {
@@ -476,7 +556,7 @@ async function applyEdit(s, fields, label) {
   );
   invalidate(s.slug, site?.customDomain);
   track(s._id, 'edited', { fields: Object.keys(fields) });
-  return backToLive(s, `✅ ${label}: ${siteUrl(s.slug)}`);
+  return backToLive(s, `✅ ${label}\n\n${siteUrl(s.slug)}`);
 }
 
 async function backToLive(s, message) {
@@ -515,7 +595,11 @@ async function deleteSite(s, site) {
 }
 
 function liveMenu(s) {
-  return sendButtons(s._id, `Your website: ${siteUrl(s.slug)}\n\nWhat would you like to change?`, [
+  return sendButtons(
+    s._id,
+    `Your website: ${siteUrl(s.slug)}\n\nTo change anything, just type it in your own words, for example _"make the colours dark blue"_ or _"add a section about home delivery"_.\n\n` +
+      `Other commands: *new design*, *undo*, *number 98xxxxxxxx*, *delete my site*`,
+    [
     { id: 'edit_about', title: 'Edit details' },
     { id: 'edit_photos', title: 'Change photos' },
     { id: 'get_link', title: 'Get my link' },

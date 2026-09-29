@@ -46,6 +46,12 @@ export const config = {
     accountId: env.CF_ACCOUNT_ID || '',
     apiToken: env.CF_AI_TOKEN || '',
   },
+  images: {
+    openaiKey: env.OPENAI_API_KEY || '',
+    openaiModel: env.OPENAI_IMAGE_MODEL || 'gpt-image-1',
+    geminiModel: env.GEMINI_IMAGE_MODEL ?? 'gemini-2.5-flash-image',
+    cfModel: env.CF_IMAGE_MODEL || '@cf/black-forest-labs/flux-1-schnell',
+  },
   imageBase: (env.IMAGE_PUBLIC_BASE || '').replace(/\/+$/, ''),
   adminNumbers: (env.ADMIN_NUMBERS || '')
     .split(',')
@@ -57,6 +63,7 @@ export const config = {
     aiCallsPerDay: Number(env.LIMIT_AI_CALLS_PER_DAY) || 30,
     photosPerHour: Number(env.LIMIT_PHOTOS_PER_HOUR) || 20,
     advancedPerDay: Number(env.LIMIT_ADVANCED_PER_DAY) || 3,
+    editsPerDay: Number(env.LIMIT_EDITS_PER_DAY) || 15,
   },
 };
 

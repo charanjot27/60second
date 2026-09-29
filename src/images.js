@@ -2,61 +2,121 @@ import { config } from './config.js';
 import { log } from './log.js';
 import { processAndUpload } from './storage.js';
 
-const MODEL = '@cf/black-forest-labs/flux-1-schnell';
-const STYLE = 'professional photograph, natural light, clean composition, no text, no logos, no watermark';
+const STYLE =
+  'editorial photograph, shot on a full-frame camera, natural light, true-to-life colour, sharp focus, shallow depth of field, ' +
+  'realistic Indian setting, no text, no letters, no logos, no watermark, no distorted faces';
 
-const cloudflareEnabled = () => Boolean(config.cf.accountId && config.cf.apiToken);
+const SHAPES = {
+  wide: { ratio: '3:2', w: 1536, h: 1024, openai: '1536x1024' },
+  tall: { ratio: '4:5', w: 1024, h: 1280, openai: '1024x1536' },
+  square: { ratio: '1:1', w: 1024, h: 1024, openai: '1024x1024' },
+};
+const SLOT_SHAPES = ['wide', 'tall', 'wide', 'square'];
 
-export function imagesEnabled() {
-  return true;
+const full = (prompt) => `${prompt}. ${STYLE}`.slice(0, 1800);
+
+async function viaOpenAI(prompt, shape) {
+  const res = await fetch('https://api.openai.com/v1/images/generations', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${config.images.openaiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: config.images.openaiModel, prompt: full(prompt), size: shape.openai, quality: 'high', n: 1 }),
+    signal: AbortSignal.timeout(180000),
+  });
+  if (!res.ok) throw new Error(`OpenAI image ${res.status}: ${(await res.text()).slice(0, 160)}`);
+  const b64 = (await res.json())?.data?.[0]?.b64_json;
+  if (!b64) throw new Error('OpenAI returned no image');
+  return Buffer.from(b64, 'base64');
 }
 
-async function generateFree(prompt) {
+async function viaGemini(prompt, shape) {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${config.images.geminiModel}:generateContent`,
+    {
+      method: 'POST',
+      headers: { 'x-goog-api-key': config.gemini.apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: full(prompt) }] }],
+        generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: shape.ratio } },
+      }),
+      signal: AbortSignal.timeout(120000),
+    }
+  );
+  if (!res.ok) throw new Error(`Gemini image ${res.status}: ${(await res.text()).slice(0, 160)}`);
+  const parts = (await res.json())?.candidates?.[0]?.content?.parts || [];
+  const data = parts.find((p) => p.inlineData?.data)?.inlineData.data;
+  if (!data) throw new Error('Gemini returned no image');
+  return Buffer.from(data, 'base64');
+}
+
+async function viaCloudflare(prompt, shape) {
+  const res = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${config.cf.accountId}/ai/run/${config.images.cfModel}`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${config.cf.apiToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: full(prompt), steps: 8, width: shape.w, height: shape.h }),
+      signal: AbortSignal.timeout(60000),
+    }
+  );
+  if (!res.ok) throw new Error(`Cloudflare image ${res.status}: ${(await res.text()).slice(0, 160)}`);
+  if (String(res.headers.get('content-type')).startsWith('image/')) return Buffer.from(await res.arrayBuffer());
+  const b64 = (await res.json())?.result?.image;
+  if (!b64) throw new Error('Cloudflare returned no image');
+  return Buffer.from(b64, 'base64');
+}
+
+async function viaFree(prompt, shape) {
   const seed = Math.floor(Math.random() * 1e9);
-  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(`${prompt}, ${STYLE}`.slice(0, 900))}?width=1024&height=1280&nologo=true&model=flux&seed=${seed}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(50000) });
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(full(prompt).slice(0, 900))}?width=${shape.w}&height=${shape.h}&nologo=true&model=flux&seed=${seed}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(90000) });
   if (!res.ok || !String(res.headers.get('content-type')).startsWith('image/')) {
     throw new Error(`Free image API ${res.status}`);
   }
   return Buffer.from(await res.arrayBuffer());
 }
 
+function providers() {
+  const list = [];
+  if (config.images.openaiKey) list.push(['openai', viaOpenAI]);
+  if (config.gemini.apiKey && config.images.geminiModel) list.push(['gemini', viaGemini]);
+  if (config.cf.accountId && config.cf.apiToken) list.push(['cloudflare', viaCloudflare]);
+  list.push(['free', viaFree]);
+  return list;
+}
+
+async function generate(prompt, shape) {
+  let lastError = null;
+  for (const [name, run] of providers()) {
+    try {
+      const buffer = await run(prompt, shape);
+      log.info('ai image made', { provider: name });
+      return buffer;
+    } catch (err) {
+      lastError = err;
+      log.warn('ai image provider failed', { provider: name, error: err.message });
+    }
+  }
+  throw lastError;
+}
+
 export function fallbackPrompts(site) {
   const what = [site.category, site.city && `in ${site.city}`].filter(Boolean).join(' ') || 'small local business';
   return [
-    `Welcoming storefront and interior of a ${what}`,
-    `Close-up of the products or work of a ${what}`,
-    `Tools, ingredients or materials of a ${what} arranged neatly on a table`,
+    `Wide establishing view of a welcoming, well-kept ${what}, golden hour light`,
+    `Close-up detail of the products or work of a ${what}, rich texture`,
+    `The everyday atmosphere inside a ${what}, candid, warm light`,
+    `Tools, materials or signature items of a ${what} arranged with care on a clean surface`,
   ];
 }
 
-async function generate(prompt) {
-  if (!cloudflareEnabled()) return generateFree(prompt);
-  const res = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${config.cf.accountId}/ai/run/${MODEL}`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${config.cf.apiToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ prompt: `${prompt}, ${STYLE}`.slice(0, 1800), steps: 6 }),
-      signal: AbortSignal.timeout(30000),
-    }
-  );
-  if (!res.ok) throw new Error(`Image API ${res.status}: ${(await res.text()).slice(0, 160)}`);
-  const body = await res.json();
-  const b64 = body?.result?.image;
-  if (!b64) throw new Error('Image API returned no image');
-  return Buffer.from(b64, 'base64');
+export async function generateImage(prompt, slot, ownerPhone) {
+  const shape = SHAPES[SLOT_SHAPES[slot] || 'square'];
+  return { ...(await processAndUpload(await generate(prompt, shape), ownerPhone)), ai: true, prompt };
 }
 
 export async function generateSiteImages(prompts, ownerPhone) {
   const results = await Promise.allSettled(
-    prompts.slice(0, 3).map(async (prompt) => {
-      const buffer = await generate(prompt);
-      return { ...(await processAndUpload(buffer, ownerPhone)), ai: true };
-    })
+    prompts.slice(0, 4).map((prompt, slot) => generateImage(prompt, slot, ownerPhone))
   );
   return results.flatMap((r) => {
     if (r.status === 'fulfilled') return [r.value];

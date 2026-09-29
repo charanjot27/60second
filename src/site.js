@@ -2,9 +2,9 @@ import crypto from 'node:crypto';
 import { config } from './config.js';
 import { sites } from './db.js';
 import { log } from './log.js';
+import { ENHANCE_SCRIPT } from './enhance.js';
 import {
   SITE_SCRIPT,
-  ENHANCE_SCRIPT,
   renderSite,
   renderLanding,
   renderNotFound,

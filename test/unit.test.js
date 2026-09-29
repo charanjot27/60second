@@ -295,20 +295,36 @@ test('generated pages render through the shell', async () => {
   assert.ok(html.includes('id="lb"'));
 });
 
+function claudeStream(text, model = 'claude-opus-5-5') {
+  const events = [
+    ['message_start', { type: 'message_start', message: { id: 'msg_1', type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 5, output_tokens: 0 } } }],
+    ['content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }],
+    ['content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } }],
+    ['content_block_stop', { type: 'content_block_stop', index: 0 }],
+    ['message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 42 } }],
+    ['message_stop', { type: 'message_stop' }],
+  ];
+  const body = events.map(([name, data]) => `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`).join('');
+  return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+}
+
+const goodPage = (color) => {
+  const css = 'h1{color:red}\n'.repeat(250);
+  const body = '<div class="page"><a href="{{wa}}">{{name}}</a>' + '<p>text</p>'.repeat(400) + '</div>';
+  return `===META===\n{"themeColor":"${color}","fonts":[{"family":"Sora","weights":"400;700"}]}\n===CSS===\n${css}\n===BODY===\n${body}\n===END===`;
+};
+
 test('generateSitePage parses Gemini sections and retries once', async () => {
   const { generateSitePage } = await import('../src/generate.js');
-  const css = 'h1{color:red}\n'.repeat(250);
-  const body = '<div class="page"><a href="{{wa}}">{{name}}</a>' + '<p>text</p>'.repeat(300) + '</div>';
-  const good = `===META===\n{"themeColor":"#112233","fonts":[{"family":"Sora","weights":"400;700"}]}\n===CSS===\n${css}\n===BODY===\n${body}\n===END===`;
   const calls = [];
   const realFetch = globalThis.fetch;
   globalThis.fetch = async () => {
     calls.push(1);
-    const text = calls.length === 1 ? 'nonsense' : good;
+    const text = calls.length === 1 ? 'nonsense' : goodPage('#112233');
     return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text }] } }] }) };
   };
   try {
-    const page = await generateSitePage({ businessName: 'Study Room', category: 'Library', services: [], photos: [] }, 'Swiss minimal');
+    const page = await generateSitePage({ businessName: 'Study Room', category: 'Library', services: [], photos: [] }, null);
     assert.equal(calls.length, 2);
     assert.equal(page.themeColor, '#112233');
     assert.match(page.fonts, /family=Sora:wght@400;700/);
@@ -318,31 +334,86 @@ test('generateSitePage parses Gemini sections and retries once', async () => {
   }
 });
 
-test('Claude is used for design when an Anthropic key is set', async () => {
+test('Claude designs with adaptive thinking, effort, streaming and no temperature', async () => {
   const { config } = await import('../src/config.js');
   const { generateSitePage } = await import('../src/generate.js');
   config.ai.apiKey = 'test-anthropic';
-  const css = 'h1{color:red}\n'.repeat(250);
-  const body = '<div class="page"><a href="{{wa}}">{{name}}</a>' + '<p>text</p>'.repeat(300) + '</div>';
-  const good = `===META===\n{"themeColor":"#445566","fonts":[]}\n===CSS===\n${css}\n===BODY===\n${body}\n===END===`;
-  const urls = [];
+  const requests = [];
   const realFetch = globalThis.fetch;
-  globalThis.fetch = async (url) => {
-    urls.push(String(url));
-    return { ok: true, json: async () => ({ content: [{ type: 'text', text: good }] }) };
+  globalThis.fetch = async (url, init) => {
+    requests.push({ url: String(url), body: JSON.parse(init.body) });
+    return claudeStream(goodPage('#445566'));
   };
   try {
-    const page = await generateSitePage({ businessName: 'Study Room', services: [], photos: [] }, 'Swiss minimal');
-    assert.ok(urls[0].startsWith('https://api.anthropic.com/'));
+    const page = await generateSitePage({ businessName: 'Study Room', services: [], photos: [] }, { concept: 'quiet focus' });
+    const { url, body } = requests[0];
+    assert.ok(url.startsWith('https://api.anthropic.com/v1/messages'));
+    assert.equal(body.model, 'claude-opus-5-5');
+    assert.equal(body.stream, true);
+    assert.deepEqual(body.thinking, { type: 'adaptive' });
+    assert.equal(body.output_config.effort, 'high');
+    assert.equal(body.fallbacks, 'default');
+    assert.equal(body.temperature, undefined);
     assert.equal(page.themeColor, '#445566');
+    assert.equal(page.concept, 'quiet focus');
   } finally {
     globalThis.fetch = realFetch;
     config.ai.apiKey = '';
   }
 });
 
+test('art direction returns a per-business brief with picture prompts', async () => {
+  const { config } = await import('../src/config.js');
+  const { createArtDirection } = await import('../src/generate.js');
+  config.ai.apiKey = 'test-anthropic';
+  const brief = { concept: 'Trust in brick and light', palette: { accent: '#b4532a' }, imagePrompts: ['a', 'b', 'c', 'd', 'e'] };
+  const realFetch = globalThis.fetch;
+  let sent;
+  globalThis.fetch = async (url, init) => {
+    sent = JSON.parse(init.body);
+    return claudeStream('Here it is:\n' + JSON.stringify(brief));
+  };
+  try {
+    const out = await createArtDirection({ businessName: 'Guru Kirpa Dealers', category: 'Real estate', city: 'Amritsar', slug: 'gk' });
+    assert.equal(out.concept, 'Trust in brick and light');
+    assert.equal(out.imagePrompts.length, 4);
+    assert.match(sent.messages[0].content, /Guru Kirpa Dealers/);
+    assert.match(sent.messages[0].content, /Seed moods: /);
+  } finally {
+    globalThis.fetch = realFetch;
+    config.ai.apiKey = '';
+  }
+});
+
+test('parseEdit reads summary, facts, pictures and an optional page', async () => {
+  const { parseEdit } = await import('../src/generate.js');
+  const factsOnly = parseEdit(
+    '===SUMMARY===\nAdded home loans.\n===DATA===\n{"services":["Buying","Home loans"],"price":"1 cr"}\n===IMAGES===\n[{"slot":1,"prompt":"modern house at dusk"},{"slot":9,"prompt":"x"}]\n===META===\nNONE\n===END==='
+  );
+  assert.equal(factsOnly.summary, 'Added home loans.');
+  assert.deepEqual(factsOnly.fields, { services: ['Buying', 'Home loans'] });
+  assert.deepEqual(factsOnly.images, [{ slot: 1, prompt: 'modern house at dusk' }]);
+  assert.equal(factsOnly.page, null);
+
+  const withPage = parseEdit(`===SUMMARY===\nNew colours.\n===DATA===\n{}\n===IMAGES===\n[]\n${goodPage('#0a3d2e')}`);
+  assert.equal(withPage.page.themeColor, '#0a3d2e');
+  assert.deepEqual(withPage.fields, {});
+});
+
+test('sanitizer keeps interaction hooks and drops external svg references', async () => {
+  const { sanitizeBody } = await import('../src/generate.js');
+  const out = sanitizeBody(
+    '<div data-tilt data-speed="0.2"><button data-menu aria-expanded="false">Menu</button><svg><use href="#i"></use><use href="https://evil/x.svg#a"></use></svg><div onclick="x()" data-carousel><div data-track></div></div></div>'
+  );
+  assert.ok(out.includes('data-tilt') && out.includes('data-speed="0.2"') && out.includes('data-menu'));
+  assert.ok(out.includes('href="#i"'));
+  assert.ok(!out.includes('evil') && !out.includes('onclick'));
+});
+
 test('enhance script is valid and wired into generated pages', async () => {
-  const { ENHANCE_SCRIPT } = await import('../src/render.js');
+  const { ENHANCE_SCRIPT } = await import('../src/enhance.js');
   assert.doesNotThrow(() => new Function(ENHANCE_SCRIPT));
-  assert.ok(ENHANCE_SCRIPT.includes('.reveal') && ENHANCE_SCRIPT.includes('.spot') && ENHANCE_SCRIPT.includes('.nav'));
+  for (const hook of ['.reveal', '.spot', '.nav', '[data-tilt]', '[data-speed]', '[data-rotate]', '[data-tabs]', '[data-carousel]', '[data-split]', '[data-menu]']) {
+    assert.ok(ENHANCE_SCRIPT.includes(hook), hook);
+  }
 });

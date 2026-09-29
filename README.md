@@ -12,6 +12,8 @@ and one-tap WhatsApp and Call buttons.
 Owner ──WhatsApp──▶ Meta Cloud API ──webhook──▶ Node/Express (this repo)
                                                   │  state machine (bot.js)
                                                   ├─▶ Anthropic API: writes the copy (ai.js)
+                                                  ├─▶ Claude Opus: art direction, page design, chat edits (generate.js)
+                                                  ├─▶ image models: AI pictures for Advanced sites (images.js)
                                                   ├─▶ sharp → R2: photos as WebP (storage.js)
                                                   └─▶ MongoDB: sessions + sites
 Visitor ──▶ *.site60.in (Cloudflare wildcard) ──▶ same server renders the site (site.js, render.js)
@@ -25,14 +27,26 @@ and cached for 60 seconds, so publishing is a single insert and is instant.
 | Step | Bot asks | Owner sends |
 |---|---|---|
 | 1 | Name, what you sell, city, in one message | "Sweet Crumbs, birthday cakes, home bakery in Ludhiana" |
-| 2 | Up to 6 photos, then Done (or Skip) | photos |
-| 3 | Suggested address: Use this / Pick another | a tap, or a typed name |
+| 2 | Basic or Advanced website | a tap |
+| 3 | Up to 6 photos, then Done (or Skip) | photos |
+| 4 | Suggested address: Use this / Pick another | a tap, or a typed name |
 | ✅ | The live link and how many seconds it took | |
 
-After launch any message opens the menu: **Edit details**, **Change photos**, **Get my link**.
+An Advanced site is made in three stages. Opus writes an art direction for that one business
+(palette, fonts, layout, voice and four picture briefs), the pictures are generated from those
+briefs while Opus builds the page, and the page is stored as a sanitized template. Every
+business gets its own identity.
+
+After launch the owner changes anything by typing it in plain words, for example
+"make the colours dark green" or "add home loans to our services". Opus edits the page,
+the facts or the pictures, and the previous version is kept for `undo`.
 
 | Command | What it does |
 |---|---|
+| any sentence | Applies that change to the site |
+| `new design` | A completely new design and pictures (also upgrades a Basic site) |
+| `undo` | Restores the version before the last change (up to 5 back) |
+
 | `restart`, `reset`, `start over` | Back to the start (or to the menu if a site exists) |
 | `delete my site` | Deletes the site, its photos and the chat session after confirmation |
 | `number 9876543210` | Shows a different number on the site |
@@ -55,6 +69,12 @@ src/
 ├── db.js          MongoDB connection, collections, indexes
 ├── site.js        Host-name routing, HTML cache, security headers
 ├── render.js      Site, landing, privacy, terms and 404 pages
+├── generate.js    Art direction, page generation, chat edits, HTML and CSS sanitizing
+├── advanced.js    Page shell for Advanced sites
+├── enhance.js     Interaction script for Advanced sites (reveals, tilt, parallax, tabs...)
+├── images.js      AI picture generation
+├── claude.js      Anthropic client
+├── gemini.js      Gemini client (fallback designer)
 └── log.js         Structured JSON logs
 test/
 └── unit.test.js
@@ -90,11 +110,16 @@ test/
 | `WA_APP_SECRET` | Webhook signature check |
 | `WA_VERIFY_TOKEN` | Webhook registration |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_FALLBACK_MODEL` | Copywriting |
+| `ANTHROPIC_DESIGN_MODEL` | Designer model, default `claude-opus-5-5` |
 | `MONGO_URL`, `MONGO_DB` | Database |
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Photo uploads |
 | `IMAGE_PUBLIC_BASE` | Photo URLs on sites |
-| `GEMINI_API_KEY`, `GEMINI_MODEL` | Free Google Gemini key: writes site copy and designs Advanced sites |
-| `CF_ACCOUNT_ID`, `CF_AI_TOKEN` | Optional Cloudflare Workers AI for AI-generated pictures |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | Google Gemini: fallback copywriter and designer |
+| `OPENAI_API_KEY`, `OPENAI_IMAGE_MODEL` | Optional, best-quality AI pictures |
+| `GEMINI_IMAGE_MODEL` | Gemini picture model, used when the Gemini key allows it |
+| `CF_ACCOUNT_ID`, `CF_AI_TOKEN`, `CF_IMAGE_MODEL` | Optional Cloudflare Workers AI pictures |
+| `ADMIN_NUMBERS` | Numbers that skip limits and may send `model check` |
+| `LIMIT_*` | Per-number daily limits |
 | `NODE_ENV`, `PORT` | Server |
 
 ## Local development
@@ -115,7 +140,8 @@ View any site at `http://localhost:3000/?site=<slug>`. Run the tests with `npm t
 - Disallowed businesses are refused by the AI check and a keyword blocklist.
 - Reserved words and bank or brand look-alike addresses are blocked.
 - Photos are re-encoded with EXIF and GPS data removed; storage keys use a hash of the phone number.
-- Per-number limits: 3 sites per day, 30 AI calls per day, 20 photos per hour.
+- Per-number limits: 3 sites per day, 3 Advanced designs per day, 15 chat edits per day, 30 AI calls per day, 20 photos per hour.
+- AI-generated pages never contain scripts: HTML is allowlist-sanitized, CSS is stripped of imports and URLs, and interactivity comes from one hashed script.
 - Setting a site's `status` to `suspended` in the database takes it offline with a neutral page.
 
 ## Custom domains

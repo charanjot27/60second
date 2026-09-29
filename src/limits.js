@@ -20,6 +20,7 @@ export const allowAiCall = (phone, limit) => allow(phone, 'ai', limit, DAY);
 export const allowPhoto = (phone, limit) => allow(phone, 'photo', limit, HOUR);
 export const allowAdvanced = (phone, limit) => allow(phone, 'adv', limit, DAY);
 export const allowNewSite = (phone, limit) => allow(phone, 'site', limit, DAY);
+export const allowEdit = (phone, limit) => allow(phone, 'edit', limit, DAY);
 
 export function track(phone, type, data = {}) {
   events

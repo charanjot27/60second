@@ -1,6 +1,7 @@
 import { config, siteUrl, botLink } from './config.js';
 import { FONT_PAIRS, palette } from './design.js';
-import { SITE_SCRIPT, ENHANCE_SCRIPT, escapeHtml as e, formatPhone } from './render.js';
+import { SITE_SCRIPT, escapeHtml as e, formatPhone } from './render.js';
+import { ENHANCE_SCRIPT } from './enhance.js';
 import { buildData, fillTemplate, sanitizeBody, pageCss } from './generate.js';
 
 const WA_ICON =
