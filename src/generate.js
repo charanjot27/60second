@@ -323,12 +323,34 @@ async function attempt(site, direction, opts, provider, timeoutMs, note) {
   const page = {
     themeColor: /^#[0-9a-f]{6}$/i.test(meta.themeColor || '') ? meta.themeColor : '#222222',
     fonts: fontLink(meta.fonts),
+    fontSpec: meta.fonts,
     css,
     body,
     direction,
   };
   if (!validPage(page)) throw new Error(`Generated page too small (${body.length} html, ${css.length} css)`);
   return page;
+}
+
+const REVIEW_PROMPT = `You are the art director reviewing a one-page website draft written by a junior designer. Audit it hard against the original brief rules, then return an improved, complete replacement.
+
+Check and fix: weak or generic headline and copy; banned buzzwords; invented facts, prices, stats or reviews; inconsistent spacing, type scale or icon style; more than one accent colour; poor contrast; cramped or oversized mobile layout; missing sections; missing hover, focus or reveal states; images without alt text or without border-radius and aspect-ratio; placeholders left unfilled; anything that looks templated. Then raise the craft: sharper copy, stronger hierarchy, more considered whitespace, more refined details.
+
+Keep every {{placeholder}}, <template data-each> and <template data-if> block working. Keep the same output format exactly (===META=== ... ===CSS=== ... ===BODY=== ... ===END===) and return the whole page, not a diff.`;
+
+async function refine(site, page, direction, timeoutMs) {
+  const user = `Original rules:\n${SYSTEM_PROMPT}\n\nDirection: ${direction}\nBusiness: ${site.businessName}, ${site.category}, ${site.city}\n\nDraft to review:\n===META===\n${JSON.stringify({ themeColor: page.themeColor, fonts: page.fontSpec })}\n===CSS===\n${page.css}\n===BODY===\n${page.body}\n===END===`;
+  const raw = await callClaude({ model: config.ai.designModel, system: REVIEW_PROMPT, user, maxTokens: 24000, temperature: 0.8, timeoutMs });
+  const { meta, css, body } = parseSections(raw);
+  const improved = {
+    themeColor: /^#[0-9a-f]{6}$/i.test(meta.themeColor || '') ? meta.themeColor : page.themeColor,
+    fonts: meta.fonts ? fontLink(meta.fonts) : page.fonts,
+    fontSpec: meta.fonts || page.fontSpec,
+    css,
+    body,
+    direction,
+  };
+  return validPage(improved) ? improved : page;
 }
 
 export function designerEnabled() {
@@ -344,7 +366,14 @@ export async function generateSitePage(site, direction, opts = {}) {
   for (const [provider, timeoutMs] of providers) {
     for (const tries of [0, 1]) {
       try {
-        return await attempt(site, direction, opts, provider, timeoutMs, tries ? note : '');
+        const draft = await attempt(site, direction, opts, provider, timeoutMs, tries ? note : '');
+        if (provider !== 'claude') return draft;
+        try {
+          return await refine(site, draft, direction, timeoutMs);
+        } catch (err) {
+          log.warn('page review failed', { error: err.message });
+          return draft;
+        }
       } catch (err) {
         lastError = err;
         log.warn('page attempt failed', { provider, error: err.message });
