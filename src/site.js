@@ -27,7 +27,7 @@ const imageOrigin = config.imageBase ? new URL(config.imageBase).origin : '';
 
 const CSP = [
   "default-src 'none'",
-  `img-src 'self' data: ${imageOrigin}`.trim(),
+  `img-src 'self' data: ${imageOrigin} https://images.unsplash.com`.replace(/\s+/g, ' '),
   `media-src ${imageOrigin || "'self'"}`,
   "style-src 'unsafe-inline' https://fonts.googleapis.com",
   'font-src https://fonts.gstatic.com',

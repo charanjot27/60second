@@ -15,6 +15,22 @@ export const EXTRAS_CSS = `.sx{max-width:1120px;margin:0 auto;padding:56px 20px;
 .sx-form button:hover{opacity:.85}
 .sx-hp{position:absolute!important;left:-9999px!important;width:1px;height:1px;overflow:hidden}`;
 
+export function creditsHtml(images = []) {
+  const ai = images.some((x) => x?.ai);
+  const seen = new Set();
+  const credits = images
+    .filter((x) => x?.credit?.name && x.credit.url)
+    .filter((x) => {
+      const key = `${x.credit.name}|${x.credit.source}`;
+      return !seen.has(key) && seen.add(key);
+    })
+    .map((x) => `<a href="${e(x.credit.url)}" rel="noopener">${e(x.credit.name)}</a> on <a href="${e(x.credit.sourceUrl)}" rel="noopener">${e(x.credit.source)}</a>`);
+  return (
+    (credits.length ? `<p>Photos by ${credits.join(', ')}.</p>` : '') +
+    (ai ? '<p>Some pictures are AI-generated illustrations.</p>' : '')
+  );
+}
+
 export function extrasHtml(site) {
   const lang = site.language || 'en';
   const videos = (site.videos || []).filter((v) => v?.url);

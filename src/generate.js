@@ -48,11 +48,13 @@ Reply with JSON only:
   "signatureDetail": "one delight detail suited to the business (steam rising from a cup, sparkle on jewellery, a bouncing dumbbell, a custom cursor)",
   "sound": false,
   "headline": "a hero headline written for this business, never 'Welcome to ...'",
-  "imagePrompts": ["four picture briefs"]
+  "imagePrompts": ["four picture briefs"],
+  "searchQueries": ["four short stock-photo search queries, one per picture brief, 2 to 5 concrete English words"]
 }
 
 Sound: true only if it truly suits the business (a kids' play zone, a game cafe, a music studio, a playful bakery); false for clinics, law, finance and most services.
 Picture briefs: photorealistic scenes that fit this exact kind of business in its city or region, each with subject, setting, time of day, light, lens and composition, and colour grading that matches the palette. Brief 1 is the wide hero, 2 a tall portrait, 3 a wide atmospheric band, 4 a square close detail. No text, signage or logos in the pictures, no identifiable faces (people from behind, hands or at a distance are fine), and nothing the business did not say it offers.
+Search queries: what a photo editor would type into Pexels or Unsplash to find a real photo for each brief (for example "modern indian house exterior dusk"). Concrete subject first; add the region only when it matters.
 Before answering, ask yourself: "Could someone spot this as coming from the same generator as the recent designs?" If yes, change the palette, fonts or layout until the answer is no.`;
 
 const PAGE_PROMPT = `You are an award-level web designer and front-end developer. You build one-of-a-kind one-page websites for small businesses, and every site must look as if a different studio designed it. You receive the business facts and an art direction (with a mandatory design seed) from your creative director. Realise it with real craft and improve on it wherever your judgement says so.
@@ -199,6 +201,7 @@ const SVG_ATTRS = [
 function imageAllowed(src) {
   if (!src) return false;
   if (config.imageBase && src.startsWith(`${config.imageBase}/`)) return true;
+  if (src.startsWith('https://images.unsplash.com/')) return true;
   return false;
 }
 
@@ -464,7 +467,10 @@ function cleanBrief(brief) {
   const prompts = Array.isArray(brief?.imagePrompts)
     ? brief.imagePrompts.map((p) => String(p || '').trim().slice(0, 900)).filter(Boolean).slice(0, 4)
     : [];
-  return { ...brief, imagePrompts: prompts };
+  const queries = Array.isArray(brief?.searchQueries)
+    ? brief.searchQueries.map((q) => String(q || '').replace(/[^\p{L}\p{N} -]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 80)).slice(0, 4)
+    : [];
+  return { ...brief, imagePrompts: prompts, searchQueries: queries };
 }
 
 function seedText(seed) {
@@ -511,7 +517,7 @@ export async function generateSitePage(site, brief) {
   const user =
     `Business facts:\n${JSON.stringify(facts(site), null, 2)}\n\n` +
     (brief
-      ? `Art direction:\n${JSON.stringify({ ...brief, imagePrompts: undefined }, null, 2)}\n\n`
+      ? `Art direction:\n${JSON.stringify({ ...brief, imagePrompts: undefined, searchQueries: undefined }, null, 2)}\n\n`
       : `${seedText(pickSeed(null))}\n\nNo art direction is available, so create your own from the business and this seed.\n\n`) +
     'Build the website now.';
   let lastError = null;

@@ -7,12 +7,13 @@ const STYLE =
   'editorial photograph, shot on a full-frame camera, natural light, true-to-life colour, sharp focus, shallow depth of field, ' +
   'realistic Indian setting, no text, no letters, no logos, no watermark, no distorted faces';
 
-const SHAPES = {
+export const SHAPES = {
   wide: { ratio: '3:2', w: 1536, h: 1024, openai: '1536x1024' },
   tall: { ratio: '4:5', w: 1024, h: 1280, openai: '1024x1536' },
   square: { ratio: '1:1', w: 1024, h: 1024, openai: '1024x1024' },
 };
-const SLOT_SHAPES = ['wide', 'tall', 'wide', 'square'];
+export const SLOT_SHAPES = ['wide', 'tall', 'wide', 'square'];
+export const shapeOf = (slot) => SHAPES[SLOT_SHAPES[slot] || 'square'];
 
 const HOUR = 60 * 60 * 1000;
 const pausedUntil = new Map();
@@ -118,7 +119,7 @@ function providers() {
   return list;
 }
 
-async function cropTo(buffer, shape) {
+export async function cropTo(buffer, shape) {
   const { width, height } = await sharp(buffer).metadata();
   if (!width || !height) return buffer;
   const target = shape.w / shape.h;
@@ -157,9 +158,12 @@ export function fallbackPrompts(site) {
   ];
 }
 
+export function aiImageBuffer(prompt, slot) {
+  return generate(prompt, shapeOf(slot));
+}
+
 export async function generateImage(prompt, slot, ownerPhone) {
-  const shape = SHAPES[SLOT_SHAPES[slot] || 'square'];
-  return { ...(await processAndUpload(await generate(prompt, shape), ownerPhone)), ai: true, prompt };
+  return { ...(await processAndUpload(await aiImageBuffer(prompt, slot), ownerPhone)), ai: true, prompt };
 }
 
 export async function generateSiteImages(prompts, ownerPhone) {

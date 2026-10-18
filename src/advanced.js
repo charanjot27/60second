@@ -2,7 +2,7 @@ import { config, siteUrl, botLink } from './config.js';
 import { FONT_PAIRS, palette } from './design.js';
 import { SITE_SCRIPT, escapeHtml as e, formatPhone, faviconLink } from './render.js';
 import { ENHANCE_SCRIPT } from './enhance.js';
-import { extrasHtml, EXTRAS_CSS } from './extras.js';
+import { extrasHtml, creditsHtml, EXTRAS_CSS } from './extras.js';
 import { buildData, fillTemplate, sanitizeBody, pageCss } from './generate.js';
 
 const WA_ICON =
@@ -181,7 +181,7 @@ ${body}
 ${extrasHtml(site)}
 <footer class="sys-footer">
 <p>Made on WhatsApp in 60 seconds with ${e(config.brand)}. <a href="${e(botLink(`Hi, I want a website like ${site.slug}`))}">Make yours</a></p>
-${ai.length ? '<p>Some pictures are AI-generated illustrations.</p>' : ''}
+${creditsHtml(site.aiImages)}
 <p><a href="mailto:${e(config.abuseEmail)}?subject=${encodeURIComponent(`Report ${site.slug}`)}">Report this site</a></p>
 </footer>
 <nav class="bar${hasCta ? '' : ' on'}" id="bar" aria-label="Contact"><a href="${e(data.scalars.wa)}">${WA_ICON}WhatsApp</a><a href="${e(data.scalars.tel)}">${CALL_ICON}Call</a></nav>
@@ -294,6 +294,7 @@ ${galleryBlock}
 ${extrasHtml(site)}
 <footer>
 <p>Made on WhatsApp in 60 seconds with ${e(config.brand)}. <a href="${e(botLink(`Hi, I want a website like ${site.slug}`))}">Make yours</a></p>
+${creditsHtml(site.aiImages)}
 <p><a href="mailto:${e(config.abuseEmail)}?subject=${encodeURIComponent(`Report ${site.slug}`)}">Report this site</a></p>
 </footer>
 <nav class="bar" id="bar" aria-label="Contact">${buttons('WhatsApp')}</nav>

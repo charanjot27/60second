@@ -578,3 +578,58 @@ test('every site gets an inline SVG favicon in its brand colour', () => {
   assert.match(html, /<link rel="icon" href="data:image\/svg\+xml,/);
   assert.ok(decodeURIComponent(html.match(/data:image\/svg\+xml,([^"]+)/)[1]).includes('>Z</text>'));
 });
+
+test('the photo editor sees stock and AI candidates as images and its picks are used', async () => {
+  const sharp = (await import('sharp')).default;
+  const jpeg = await sharp({ create: { width: 64, height: 48, channels: 3, background: '#a85' } }).jpeg().toBuffer();
+  const { sourceSiteImages } = await import('../src/photos.js');
+  const { creditsHtml } = await import('../src/extras.js');
+  config.images.pexelsKey = 'p';
+  config.images.unsplashKey = 'u';
+  const realFetch = globalThis.fetch;
+  let pickRequest = null;
+  const pinged = [];
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    const json = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+    if (u.startsWith('https://api.pexels.com')) {
+      return json({ photos: [1, 2].map((n) => ({ alt: 'house', photographer: `P${n}`, photographer_url: 'https://pexels.com/@p', src: { medium: 'https://px.example/t.jpg', large2x: 'https://px.example/l.jpg' } })) });
+    }
+    if (u.startsWith('https://api.unsplash.com/search')) {
+      return json({ results: [1, 2].map((n) => ({ alt_description: 'villa', urls: { small: 'https://un.example/s.jpg', raw: `https://images.unsplash.com/photo-${n}?ixid=x` }, links: { download_location: `https://api.unsplash.com/photos/${n}/download` }, user: { name: `U${n}`, links: { html: 'https://unsplash.com/@u' } } })) });
+    }
+    if (u.startsWith('https://api.unsplash.com/photos/')) {
+      pinged.push(u);
+      return json({});
+    }
+    if (u.startsWith('https://px.example') || u.startsWith('https://un.example')) return new Response(jpeg, { status: 200 });
+    if (u.includes('/ai/run/')) return json({ result: { image: jpeg.toString('base64') } });
+    if (u.includes('api.anthropic.com')) {
+      pickRequest = JSON.parse(init.body);
+      return claudeStream(JSON.stringify({ picks: [1, 2, 3, 4].map((slot) => ({ slot, choice: `${slot}C`, why: 'fits' })) }));
+    }
+    throw new Error(`unexpected fetch ${u}`);
+  };
+  try {
+    const images = await sourceSiteImages({
+      prompts: ['hero house', 'portrait', 'band', 'detail'],
+      queries: ['indian house', 'living room', 'street', 'keys'],
+      context: { business: { name: 'Guru Kirpa' } },
+      ownerPhone: '919800000000',
+    });
+    const content = pickRequest.messages[0].content;
+    assert.equal(content.filter((c) => c.type === 'image').length, 20);
+    assert.ok(content.some((c) => c.type === 'text' && c.text.includes('Candidate 1E (AI image)')));
+    assert.equal(images.length, 4);
+    assert.ok(images.every((x) => x.stock && x.credit.source === 'Unsplash' && x.lg.startsWith('https://images.unsplash.com/photo-1')));
+    assert.match(images[0].lg, /w=1200&h=800&fit=crop/);
+    assert.equal(pinged.length, 4);
+    const credits = creditsHtml(images);
+    assert.match(credits, /Photos by <a [^>]+>U1<\/a> on <a [^>]+>Unsplash<\/a>/);
+    assert.doesNotMatch(credits, /AI-generated/);
+  } finally {
+    globalThis.fetch = realFetch;
+    config.images.pexelsKey = '';
+    config.images.unsplashKey = '';
+  }
+});

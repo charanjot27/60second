@@ -26,7 +26,7 @@ export async function callClaudeRaw({ model, system, user, maxTokens = 4000, eff
     model,
     max_tokens: maxTokens,
     system,
-    messages: [{ role: 'user', content: user }],
+    messages: [{ role: 'user', content: Array.isArray(user) ? user : String(user) }],
   };
   if (!isHaiku(model)) {
     params.thinking = { type: 'adaptive' };

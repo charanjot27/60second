@@ -75,6 +75,10 @@ export const config = {
     openaiModel: env.OPENAI_IMAGE_MODEL || 'gpt-image-1',
     geminiModel: env.GEMINI_IMAGE_MODEL || '',
     cfModel: env.CF_IMAGE_MODEL || '@cf/black-forest-labs/flux-1-schnell',
+    pexelsKey: env.PEXELS_API_KEY || '',
+    pixabayKey: env.PIXABAY_API_KEY || '',
+    unsplashKey: env.UNSPLASH_ACCESS_KEY || '',
+    appName: env.UNSPLASH_APP_NAME || env.BRAND_NAME || 'site60',
   },
   imageBase: (env.IMAGE_PUBLIC_BASE || '').replace(/\/+$/, ''),
   adminNumbers: (env.ADMIN_NUMBERS || '')

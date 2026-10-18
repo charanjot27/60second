@@ -92,6 +92,7 @@ src/
 ├── advanced.js    Page shell for Advanced sites
 ├── enhance.js     Interaction script for Advanced sites (reveals, tilt, parallax, tabs...)
 ├── images.js      AI picture generation
+├── photos.js      Stock photo search and the AI photo editor that picks the best picture
 ├── claude.js      Anthropic client
 ├── gemini.js      Gemini client (fallback designer)
 ├── i18n.js        Onboarding text in English, Hindi and Punjabi
@@ -147,6 +148,7 @@ test/
 | `OPENAI_API_KEY`, `OPENAI_IMAGE_MODEL` | Optional, best-quality AI pictures |
 | `GEMINI_IMAGE_MODEL` | Gemini picture model, used when the Gemini key allows it |
 | `CF_ACCOUNT_ID`, `CF_AI_TOKEN`, `CF_IMAGE_MODEL` | Optional Cloudflare Workers AI pictures |
+| `PEXELS_API_KEY`, `UNSPLASH_ACCESS_KEY`, `PIXABAY_API_KEY` | Real stock photos; Claude picks the best stock or AI picture for each spot |
 | `ADMIN_NUMBERS` | Numbers that skip limits and trials, and may send `model check` |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID` | Paid plans; webhook at `https://ROOT_DOMAIN/stripe/webhook` |
 | `TRIAL_HOURS`, `PRICE_LABEL` | Free trial length and the price shown in chat |

@@ -8,7 +8,8 @@ import { invalidate } from './site.js';
 import { enqueue } from './queue.js';
 import { allowAiCall, allowPhoto, allowAdvanced, allowNewSite, allowEdit, allowVoice, track } from './limits.js';
 import { makeDesign } from './design.js';
-import { generateSiteImages, generateImage, fallbackPrompts } from './images.js';
+import { generateImage, fallbackPrompts } from './images.js';
+import { sourceSiteImages } from './photos.js';
 import { callClaudeRaw, claudeEnabled } from './claude.js';
 import { createArtDirection, generateSitePage, editSite } from './generate.js';
 import { designMemory, recordDesign, markOutcome } from './memory.js';
@@ -713,8 +714,17 @@ async function designSite(site, ownerPhone) {
   const memory = await designMemory(site.category).catch(() => null);
   const brief = await createArtDirection(site, memory);
   const prompts = brief?.imagePrompts?.length ? brief.imagePrompts : site.imagePrompts?.length ? site.imagePrompts : fallbackPrompts(site);
+  const queries = brief?.searchQueries?.length
+    ? brief.searchQueries
+    : prompts.map((_, i) => [site.category, ['', 'interior', 'detail', 'work'][i]].filter(Boolean).join(' '));
+  const context = {
+    business: { name: site.businessName, category: site.category, city: site.city, services: site.services },
+    concept: brief?.concept,
+    palette: brief?.palette,
+    imageTreatment: brief?.imageTreatment,
+  };
   const [aiImages, page] = await Promise.all([
-    generateSiteImages(prompts, ownerPhone),
+    sourceSiteImages({ prompts, queries, context, ownerPhone }),
     generateSitePage({ ...site, design }, brief).catch((err) => {
       log.warn('page generation failed', { error: err.message });
       return null;
