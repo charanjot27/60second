@@ -6,6 +6,7 @@ import { callClaude, claudeEnabled } from './claude.js';
 import { escapeHtml } from './render.js';
 import { memoryNote } from './memory.js';
 import { pickSeed, briefIssues } from './designrules.js';
+import { classifyIndustry, industryBrief } from './industry.js';
 
 const ART_PROMPT = `You are an award-level brand designer and creative director. You design one-of-a-kind websites for small businesses, and every site must look as if a different studio designed it. If two of your sites were placed side by side, nobody should be able to tell they came from the same system. You write the art direction for one business; a designer-engineer builds the page from it next.
 
@@ -53,7 +54,8 @@ Reply with JSON only:
 }
 
 Sound: true only if it truly suits the business (a kids' play zone, a game cafe, a music studio, a playful bakery); false for clinics, law, finance and most services.
-Picture briefs: photorealistic scenes that fit this exact kind of business in its city or region, each with subject, setting, time of day, light, lens and composition, and colour grading that matches the palette. Brief 1 is the wide hero, 2 a tall portrait, 3 a wide atmospheric band, 4 a square close detail. No text, signage or logos in the pictures, no identifiable faces (people from behind, hands or at a distance are fine), and nothing the business did not say it offers.
+BUSINESS CLASS: you also receive the class this business belongs to, with the feeling, the picture for each section, the content to cover and what to avoid. Treat it as expert guidance for this kind of business; if the business only partly fits, borrow most of the direction from the closest related class.
+Picture briefs: each brief belongs to one section of the page and must show exactly what that section is about, for this exact business in its city or region: 1 = hero (the main offering, wide), 2 = about (the workplace, craft or people at work, tall portrait), 3 = services (the specific services or products listed, wide), 4 = detail (a close-up of a product, tool or texture, square). Each brief gives subject, setting, time of day, light, lens, composition, and colour grading matching the palette, so the pictures look like one professional photo shoot. No text, signage or logos, no identifiable faces (people from behind, hands or at a distance are fine), and nothing the business did not say it offers.
 Search queries: what a photo editor would type into Pexels or Unsplash to find a real photo for each brief (for example "modern indian house exterior dusk"). Concrete subject first; add the region only when it matters.
 Before answering, ask yourself: "Could someone spot this as coming from the same generator as the recent designs?" If yes, change the palette, fonts or layout until the answer is no.`;
 
@@ -70,7 +72,8 @@ COLOUR AND TYPE
 - A deliberate type scale: very large headlines with clamp(), tight letter-spacing on display text, body line-height 1.5 to 1.7, and the typographic moment from the art direction.
 
 IMAGERY
-- The owner's photos come first, presented with the image treatment from the art direction, with object-fit so nothing distorts.
+- The owner's own photos are the most important pictures on the page: the gallery shows all of them, and {{hero_src}} and {{img2_src}} are the owner's photos when they sent any. Present them with the image treatment from the art direction, with object-fit so nothing distorts.
+- Put each picture in the section it was made for: {{hero_src}} in the hero, {{img2_src}} in about, {{img3_src}} in services (or a band right beside it), {{img4_src}} as a detail accent.
 - Add the decorative visual system from the art direction (inline SVG or CSS).
 - When a picture block is empty, compose premium visuals from CSS and inline SVG in the palette (refined iconography, typographic art, abstract shapes, patterns), never empty boxes or cartoon clip art.
 
@@ -86,7 +89,8 @@ SOUND
 - Only when the art direction sets sound to true: add one small, elegant button with data-sound-toggle (sound is off until the visitor turns it on) and style its pressed state with [aria-pressed="true"]. The trusted script plays soft generated clicks on buttons and links; add data-sound="chime" to the one or two elements that deserve a little chime. Otherwise add no sound at all.
 
 COPY
-- Warm, specific copy in the tone of the business and in the requested language (English plus their language if they mix). Write real section copy and a short description for each service, grounded in the facts.
+- Warm, specific, substantial copy in the tone of the business and in the requested language (English plus their language if they mix): a headline and supporting line that say what the business does and for whom, an about section of 2 to 3 short paragraphs, one or two sentences for every service explaining what the customer gets, a short "how it works" (message on WhatsApp, talk it through, get it done), and a 3 to 5 question FAQ answered only from the facts.
+- Cover what customers of this business class want to know (given under BUSINESS CLASS), using only the facts given.
 - Never use: "Welcome to ...", "We provide the best quality services", revolutionize, unlock, seamless, supercharge, elevate, "in today's fast-paced world", lorem ipsum.
 
 HONESTY, NEVER BROKEN
@@ -160,6 +164,10 @@ Either NONE (when the page markup and styles need no change, for example a pure 
 ===END===
 
 Keep every placeholder, template block, required id and hook working. Facts such as the name, phone, address and services reach the page through placeholders, so a change of fact needs only DATA.`;
+
+function industryOf(site) {
+  return classifyIndustry(site);
+}
 
 function facts(site) {
   return {
@@ -327,12 +335,14 @@ function fillScalars(text, values) {
 }
 
 export function buildData(site, helpers) {
-  const own = (site.photos || []).filter((p) => !p.ai);
+  const own = (site.photos || []).filter((p) => !p.ai && p.lg);
   const ai = (site.aiImages || []).filter((p) => p.lg);
-  const hero = ai[0] || own[0];
-  const img2 = ai[1] || own[1] || hero;
-  const img3 = ai[2] || own[2] || img2;
-  const img4 = ai[3] || own[3] || img3;
+  const slotted = ai.some((p) => Number.isInteger(p.slot));
+  const aiAt = (i) => (slotted ? ai.find((p) => p.slot === i) : ai[i]);
+  const hero = own[0] || aiAt(0) || ai[0];
+  const img2 = own[1] || aiAt(1) || aiAt(0) || own[0] || hero;
+  const img3 = aiAt(2) || own[2] || aiAt(1) || img2;
+  const img4 = aiAt(3) || own[3] || aiAt(2) || img3;
   const gallery = own.length ? own : ai;
   const phone = String(site.phone || site.ownerPhone || '').replace(/\D/g, '');
   const address = site.location?.address || site.location?.name || '';
@@ -485,10 +495,11 @@ function seedText(seed) {
 }
 
 export async function createArtDirection(site, memory = null) {
-  const seed = pickSeed(memory);
+  const industry = industryOf(site);
+  const seed = pickSeed(memory, Math.random, industry);
   const note = memoryNote(memory);
   const base =
-    `Business facts:\n${JSON.stringify(facts(site), null, 2)}\n\n${seedText(seed)}` +
+    `Business facts:\n${JSON.stringify(facts(site), null, 2)}\n\n${industryBrief(industry)}\n\n${seedText(seed)}` +
     (note ? `\n\nRECENTLY USED DESIGNS (do not resemble any of these in palette, fonts or layout):\n${note}` : '');
   for (const provider of providers()) {
     try {
@@ -505,7 +516,7 @@ export async function createArtDirection(site, memory = null) {
         log.info('art direction revised', { issues: issues.length });
       }
       if (issues.length) log.warn('art direction kept with issues', { issues });
-      return { ...brief, seed: { ...seed, adaptation: brief?.seed?.adaptation || '' } };
+      return { ...brief, industry: industry.id, seed: { ...seed, adaptation: brief?.seed?.adaptation || '' } };
     } catch (err) {
       log.warn('art direction failed', { provider, error: err.message });
     }
@@ -515,10 +526,10 @@ export async function createArtDirection(site, memory = null) {
 
 export async function generateSitePage(site, brief) {
   const user =
-    `Business facts:\n${JSON.stringify(facts(site), null, 2)}\n\n` +
+    `Business facts:\n${JSON.stringify(facts(site), null, 2)}\n\n${industryBrief(industryOf(site))}\n\n` +
     (brief
       ? `Art direction:\n${JSON.stringify({ ...brief, imagePrompts: undefined, searchQueries: undefined }, null, 2)}\n\n`
-      : `${seedText(pickSeed(null))}\n\nNo art direction is available, so create your own from the business and this seed.\n\n`) +
+      : `${seedText(pickSeed(null, Math.random, industryOf(site)))}\n\nNo art direction is available, so create your own from the business and this seed.\n\n`) +
     'Build the website now.';
   let lastError = null;
   for (const provider of providers()) {
@@ -528,7 +539,7 @@ export async function generateSitePage(site, brief) {
           system: PAGE_PROMPT,
           user: retry ? `${user}\nYour previous answer could not be used. Follow the output format exactly and return the complete page.` : user,
           maxTokens: 64000,
-          effort: 'high',
+          effort: config.ai.designEffort,
           timeoutMs: provider === 'claude' ? 900000 : 180000,
         });
         const { meta, css, body } = parseSections(raw);
@@ -593,7 +604,9 @@ export async function editSite(site, request) {
   const current = site.page?.body
     ? `Current page:\n===META===\n${JSON.stringify({ themeColor: site.page.themeColor, fonts: site.page.fontSpec || [] })}\n===CSS===\n${site.page.css}\n===BODY===\n${site.page.body}\n===END===`
     : 'This website uses the standard layout, so only business facts and nothing else can change: always answer META with NONE and IMAGES with [].';
-  const pictures = (site.aiImages || []).map((x, i) => `slot ${i + 1}: ${x.prompt || 'no brief saved'}`).join('\n');
+  const pictures = (site.aiImages || [])
+    .map((x, i) => `slot ${(Number.isInteger(x.slot) ? x.slot : i) + 1}: ${x.prompt || 'no brief saved'}`)
+    .join('\n');
   const user =
     `Business facts:\n${JSON.stringify(facts(site), null, 2)}\n\n` +
     (pictures ? `Current AI pictures:\n${pictures}\n\n` : '') +

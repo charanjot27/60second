@@ -5,6 +5,9 @@ const e = (value) =>
 
 export const EXTRAS_CSS = `.sx{max-width:1120px;margin:0 auto;padding:56px 20px;color:inherit}
 .sx h2{font-size:clamp(26px,4vw,38px);line-height:1.1;margin:0 0 20px;letter-spacing:-.01em}
+.sx-gallery{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+.sx-gallery figure{margin:0}.sx-gallery button{display:block;width:100%;padding:0;border:0;background:none;cursor:zoom-in;border-radius:14px;overflow:hidden}
+.sx-gallery img{width:100%;aspect-ratio:1;object-fit:cover;display:block;transition:transform .4s ease}.sx-gallery button:hover img{transform:scale(1.04)}
 .sx-videos{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
 .sx-videos video{display:block;width:100%;max-height:72vh;border-radius:16px;background:#000;object-fit:contain}
 .sx-form{display:grid;gap:14px;max-width:560px}
@@ -31,7 +34,17 @@ export function creditsHtml(images = []) {
   );
 }
 
-export function extrasHtml(site) {
+function galleryHtml(site, photos) {
+  if (!photos?.length) return '';
+  return `<section class="sx" id="gallery"><h2>${e(site.businessName)}</h2><div class="sx-gallery">${photos
+    .map(
+      (p, i) =>
+        `<figure><button type="button" data-i="${i}" aria-label="Open photo ${i + 1} of ${photos.length}"><img src="${e(p.src)}" data-lg="${e(p.lg)}" alt="${e(p.alt)}" width="${Number(p.w) || 1200}" height="${Number(p.h) || 1200}" loading="lazy" decoding="async"></button></figure>`
+    )
+    .join('')}</div></section>`;
+}
+
+export function extrasHtml(site, { gallery = [] } = {}) {
   const lang = site.language || 'en';
   const videos = (site.videos || []).filter((v) => v?.url);
   const videoBlock = videos.length
@@ -47,5 +60,5 @@ export function extrasHtml(site) {
 <div class="sx-hp" aria-hidden="true"><label>Website<input name="website" tabindex="-1" autocomplete="off"></label></div>
 <button type="submit">${e(t(lang, 'form_send'))}</button>
 </form></section>`;
-  return videoBlock + form;
+  return galleryHtml(site, gallery) + videoBlock + form;
 }

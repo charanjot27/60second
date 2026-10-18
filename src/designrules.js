@@ -83,15 +83,21 @@ const pick = (list, avoid, rand) => {
   return from[Math.floor(rand() * from.length)];
 };
 
-export function pickSeed(memory, rand = Math.random) {
+const subset = (pool, allowed) => {
+  if (!allowed?.length) return pool;
+  const list = pool.filter((item) => allowed.some((name) => item.toLowerCase().startsWith(name.toLowerCase())));
+  return list.length ? list : pool;
+};
+
+export function pickSeed(memory, rand = Math.random, industry = null) {
   const recent = (memory?.recent || []).slice(0, 6).map((d) => d.seed || {});
   const used = (key) => new Set(recent.map((s) => s[key]).filter(Boolean));
   return {
-    archetype: pick(ARCHETYPES, used('archetype'), rand),
-    colorMood: pick(COLOR_MOODS, used('colorMood'), rand),
-    typeDirection: pick(TYPE_DIRECTIONS, used('typeDirection'), rand),
+    archetype: pick(subset(ARCHETYPES, industry?.archetypes), used('archetype'), rand),
+    colorMood: pick(subset(COLOR_MOODS, industry?.moods), used('colorMood'), rand),
+    typeDirection: pick(subset(TYPE_DIRECTIONS, industry?.types), used('typeDirection'), rand),
     heroLayout: pick(HERO_LAYOUTS, used('heroLayout'), rand),
-    motion: pick(MOTIONS, used('motion'), rand),
+    motion: pick(subset(MOTIONS, industry?.motions), used('motion'), rand),
   };
 }
 

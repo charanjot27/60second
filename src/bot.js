@@ -10,6 +10,7 @@ import { allowAiCall, allowPhoto, allowAdvanced, allowNewSite, allowEdit, allowV
 import { makeDesign } from './design.js';
 import { generateImage, fallbackPrompts } from './images.js';
 import { sourceSiteImages } from './photos.js';
+import { classifyIndustry } from './industry.js';
 import { callClaudeRaw, claudeEnabled } from './claude.js';
 import { createArtDirection, generateSitePage, editSite } from './generate.js';
 import { designMemory, recordDesign, markOutcome } from './memory.js';
@@ -655,6 +656,7 @@ async function publish(s) {
     plan: trial ? 'trial' : 'free',
     ...(trial ? { trialEndsAt: trialEndsAt(now) } : {}),
     businessName: d.businessName,
+    industry: classifyIndustry(d).id,
     category: d.category,
     tagline: d.tagline,
     description: d.description,
@@ -712,19 +714,28 @@ async function publish(s) {
 async function designSite(site, ownerPhone) {
   const design = makeDesign(site, String(Date.now()));
   const memory = await designMemory(site.category).catch(() => null);
+  const industry = classifyIndustry(site);
   const brief = await createArtDirection(site, memory);
-  const prompts = brief?.imagePrompts?.length ? brief.imagePrompts : site.imagePrompts?.length ? site.imagePrompts : fallbackPrompts(site);
-  const queries = brief?.searchQueries?.length
-    ? brief.searchQueries
-    : prompts.map((_, i) => [site.category, ['', 'interior', 'detail', 'work'][i]].filter(Boolean).join(' '));
+  const prompts =
+    brief?.imagePrompts?.length === 4
+      ? brief.imagePrompts
+      : industry.id !== 'general'
+        ? industry.imagery.map((what) => `${what}, for ${site.businessName}, a ${site.category || industry.name} in ${site.city || 'India'}`)
+        : fallbackPrompts(site);
+  const queries = [0, 1, 2, 3].map(
+    (i) => brief?.searchQueries?.[i] || industry.queries[i] || [site.category, ['', 'interior', 'work', 'detail'][i]].filter(Boolean).join(' ')
+  );
+  const own = (site.photos || []).filter((p) => !p.ai).length;
+  const skip = [own >= 1 && 0, own >= 2 && 1].filter((x) => x !== false);
   const context = {
+    businessClass: industry.name,
     business: { name: site.businessName, category: site.category, city: site.city, services: site.services },
     concept: brief?.concept,
     palette: brief?.palette,
     imageTreatment: brief?.imageTreatment,
   };
   const [aiImages, page] = await Promise.all([
-    sourceSiteImages({ prompts, queries, context, ownerPhone }),
+    sourceSiteImages({ prompts, queries, context, ownerPhone, skip }),
     generateSitePage({ ...site, design }, brief).catch((err) => {
       log.warn('page generation failed', { error: err.message });
       return null;
@@ -776,13 +787,16 @@ async function chatEdit(s, site, request) {
   const update = { ...fields };
   if (page) update.page = { ...site.page, ...page };
   if (images.length) {
-    const aiImages = [...(site.aiImages || [])];
+    const aiImages = (site.aiImages || []).map((x, i) => ({ ...x, slot: Number.isInteger(x.slot) ? x.slot : i }));
     const made = await Promise.allSettled(images.map((x) => generateImage(x.prompt, x.slot - 1, s._id)));
     made.forEach((r, i) => {
-      if (r.status === 'fulfilled') aiImages[images[i].slot - 1] = r.value;
-      else log.warn('ai image failed', { error: r.reason?.message });
+      if (r.status !== 'fulfilled') return log.warn('ai image failed', { error: r.reason?.message });
+      const slot = images[i].slot - 1;
+      const at = aiImages.findIndex((x) => x.slot === slot);
+      if (at >= 0) aiImages[at] = { ...r.value, slot };
+      else aiImages.push({ ...r.value, slot });
     });
-    update.aiImages = aiImages.filter(Boolean);
+    update.aiImages = aiImages;
   }
   if (!Object.keys(update).length) {
     return sendText(s._id, summary || "I couldn't find anything to change. Tell me in a few words what you'd like different.");

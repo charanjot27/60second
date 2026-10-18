@@ -5,7 +5,12 @@ import { processAndUpload } from './storage.js';
 import { aiImageBuffer, cropTo, shapeOf, SLOT_SHAPES } from './images.js';
 import { callClaude, claudeEnabled } from './claude.js';
 
-const SLOT_NAMES = ['wide hero picture', 'tall portrait picture', 'wide atmospheric band', 'square close-up detail'];
+const SLOT_NAMES = [
+  'HERO section, wide: the main offering of the business',
+  'ABOUT section, tall portrait: the workplace, craft or people at work',
+  'SERVICES section, wide: the specific services or products listed',
+  'DETAIL accent, square: a close-up of a product, tool or texture',
+];
 const ORIENT = {
   pexels: { wide: 'landscape', tall: 'portrait', square: 'square' },
   pixabay: { wide: 'horizontal', tall: 'vertical', square: 'all' },
@@ -119,7 +124,7 @@ async function slotCandidates(slot, prompt, query) {
 
 const PICK_PROMPT = `You are the photo editor of an award-winning design studio, choosing pictures for one small business's website.
 For every slot, look at the candidates and choose the single best one for that slot, the brief and the art direction.
-Reject any candidate with visible text, watermarks or logos, distorted faces or hands, the wrong subject, a setting that does not fit the business and its region, poor quality, or colours that clash with the palette.
+Each slot belongs to one section of the page; the picture must clearly show what that section is about for THIS business and its business class (a clinic needs clinical scenes, a bakery needs its baked goods). Reject any candidate with visible text, watermarks or logos, distorted faces or hands, a subject unrelated to the section or the business, a setting that does not fit the business and its region, poor or blurry quality, or colours that clash with the palette.
 Prefer real photographs when they truly fit; choose the AI image when it fits the brief better. Never pick the same picture for two slots.
 Reply with JSON only: {"picks":[{"slot":1,"choice":"1A","why":"short reason"}]}. Use "choice": null when no candidate is good enough.`;
 
@@ -162,11 +167,13 @@ async function finalize(c, slot, ownerPhone, prompt) {
   return { ...(await processAndUpload(buffer, ownerPhone)), stock: true, credit: c.credit, prompt, alt: c.alt };
 }
 
-export async function sourceSiteImages({ prompts, queries = [], context = {}, ownerPhone }) {
+export async function sourceSiteImages({ prompts, queries = [], context = {}, ownerPhone, skip = [] }) {
   const briefs = prompts.slice(0, 4);
-  const slots = await Promise.all(briefs.map((prompt, i) => slotCandidates(i, prompt, queries[i])));
+  const skipped = new Set(skip);
+  const slots = await Promise.all(briefs.map((prompt, i) => (skipped.has(i) ? [] : slotCandidates(i, prompt, queries[i]))));
   let picks = new Map();
   const hasChoice = slots.some((c) => c.length > 1);
+  context = { ...context, slots: SLOT_NAMES };
   if (hasChoice && claudeEnabled()) {
     try {
       picks = await pickBest(slots, { ...context, briefs });
@@ -185,7 +192,7 @@ export async function sourceSiteImages({ prompts, queries = [], context = {}, ow
       const chosen = cands[index] || cands[defaultPick(cands)];
       if (!chosen) return null;
       log.info('picture chosen', { slot: i + 1, source: chosen.source });
-      return finalize(chosen, i, ownerPhone, briefs[i]);
+      return { ...(await finalize(chosen, i, ownerPhone, briefs[i])), slot: i };
     })
   );
   return results.flatMap((r) => {

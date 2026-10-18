@@ -573,10 +573,79 @@ test('page manifest is parsed, and sound and cursor hooks survive the sanitizer'
   assert.ok(ENHANCE_SCRIPT.includes('[data-sound-toggle]') && ENHANCE_SCRIPT.includes('[data-cursor]') && ENHANCE_SCRIPT.includes('AudioContext'));
 });
 
-test('every site gets an inline SVG favicon in its brand colour', () => {
-  const html = renderSite({ slug: 'shop', businessName: 'Zara Tailors', phone: '919876543210', photos: [], theme: 'forest' });
-  assert.match(html, /<link rel="icon" href="data:image\/svg\+xml,/);
-  assert.ok(decodeURIComponent(html.match(/data:image\/svg\+xml,([^"]+)/)[1]).includes('>Z</text>'));
+test('every site gets a favicon with its business-class icon in its brand colour', async () => {
+  const { INDUSTRIES } = await import('../src/industry.js');
+  const svgOf = (html) => decodeURIComponent(html.match(/data:image\/svg\+xml,([^"]+)/)[1]);
+  const clinic = svgOf(renderSite({ slug: 'c', businessName: 'Dr Mehta', category: 'Doctor', phone: '919876543210', photos: [], theme: 'ocean' }));
+  const bakery = svgOf(renderSite({ slug: 'b', businessName: 'Sweet Crumbs', category: 'Home Bakery', phone: '919876543210', photos: [], theme: 'rose' }));
+  assert.ok(clinic.includes('M9 3h6v6h6v6h-6v6H9v-6H3V9h6z'), 'medical cross');
+  assert.ok(bakery.includes('M5 21v-8h14v8'), 'cake');
+  assert.ok(INDUSTRIES.every((i) => i.imagery.length === 4));
+});
+
+test('businesses map to the right class, and unknown ones to the closest class', async () => {
+  const { classifyIndustry } = await import('../src/industry.js');
+  const cases = {
+    Doctor: 'healthcare', Medico: 'healthcare', 'Skin care clinic': 'healthcare', 'Dental clinic': 'dental',
+    'Real Estate Agent': 'real-estate', 'Home Bakery': 'bakery', 'Study Room': 'education', 'Unisex Salon': 'beauty',
+    'Gold Jewellers': 'jewellery', 'Car service': 'automotive', 'AC repair': 'home-services', 'Tea stall': 'restaurant',
+  };
+  for (const [category, id] of Object.entries(cases)) assert.equal(classifyIndustry({ category }).id, id, category);
+  assert.equal(classifyIndustry({ category: 'Pet grooming' }).id, 'beauty');
+  assert.equal(classifyIndustry({ category: 'Something unusual' }).id, 'general');
+  assert.equal(classifyIndustry({ category: 'Team building', description: 'our team' }).id, 'general');
+});
+
+test('seeds stay within the themes that suit the business class', async () => {
+  const { pickSeed } = await import('../src/designrules.js');
+  const { classifyIndustry } = await import('../src/industry.js');
+  const clinic = classifyIndustry({ category: 'Doctor' });
+  for (let i = 0; i < 30; i++) {
+    const seed = pickSeed(null, Math.random, clinic);
+    assert.ok(clinic.archetypes.some((a) => seed.archetype.startsWith(a)), seed.archetype);
+    assert.ok(clinic.moods.includes(seed.colorMood), seed.colorMood);
+    assert.ok(clinic.motions.some((m) => seed.motion.startsWith(m)), seed.motion);
+  }
+});
+
+test('owner photos come first, and are always shown even if the AI page forgot the gallery', async () => {
+  const { buildData } = await import('../src/generate.js');
+  const { renderAdvanced } = await import('../src/advanced.js');
+  const pic = (n, extra = {}) => ({ lg: `https://img.example/${n}-lg.webp`, sm: `https://img.example/${n}-sm.webp`, w: 1200, h: 800, ...extra });
+  const site = {
+    slug: 'clinic', businessName: 'Dr Mehta', category: 'Doctor', phone: '919876543210', ownerPhone: '919876543210',
+    photos: [pic('own1')],
+    aiImages: [pic('band', { slot: 2, stock: true }), pic('detail', { slot: 3, ai: true })],
+  };
+  const d = buildData(site, { formatPhone: (x) => x });
+  assert.equal(d.scalars.hero_src, 'https://img.example/own1-lg.webp');
+  assert.equal(d.scalars.img3_src, 'https://img.example/band-lg.webp');
+  assert.equal(d.scalars.img4_src, 'https://img.example/detail-lg.webp');
+  const body = '<div class="nav"><a href="{{wa}}">{{name}}</a></div><section id="cta"><a href="{{tel}}">Call</a></section>' + '<p>copy</p>'.repeat(400);
+  const html = renderAdvanced({ ...site, style: 'advanced', design: {}, page: { themeColor: '#2a6f5b', fonts: '', css: 'p{}', body } });
+  assert.ok(html.includes('id="gallery"') && html.includes('own1-sm.webp') && html.includes('data-i="0"'));
+  assert.ok(html.includes('id="lb"'));
+});
+
+test('slots covered by owner photos are not re-sourced', async () => {
+  const { sourceSiteImages } = await import('../src/photos.js');
+  const realFetch = globalThis.fetch;
+  const sharp = (await import('sharp')).default;
+  const jpeg = await sharp({ create: { width: 32, height: 24, channels: 3, background: '#468' } }).jpeg().toBuffer();
+  let aiCalls = 0;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('/ai/run/')) {
+      aiCalls++;
+      return new Response(JSON.stringify({ result: { image: jpeg.toString('base64') } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+  try {
+    await sourceSiteImages({ prompts: ['a', 'b', 'c', 'd'], ownerPhone: '91', skip: [0, 1] }).catch(() => []);
+    assert.equal(aiCalls, 2);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
 
 test('the photo editor sees stock and AI candidates as images and its picks are used', async () => {
@@ -631,5 +700,38 @@ test('the photo editor sees stock and AI candidates as images and its picks are 
     globalThis.fetch = realFetch;
     config.images.pexelsKey = '';
     config.images.unsplashKey = '';
+  }
+});
+
+test('the better Cloudflare model is tried first and falls back to FLUX when refused', async () => {
+  const images = await import('../src/images.js');
+  const sharp = (await import('sharp')).default;
+  const png = await sharp({ create: { width: 300, height: 200, channels: 3, background: '#468' } }).png().toBuffer();
+  config.cf.accountId = 'acc';
+  config.cf.apiToken = 'tok';
+  const saved = config.images.cfModels;
+  config.images.cfModels = ['@cf/leonardo/lucid-origin', '@cf/black-forest-labs/flux-1-schnell'];
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    calls.push({ model: String(url).split('/run/')[1], body });
+    if (String(url).includes('lucid-origin')) return new Response('{"errors":[{"message":"bad input"}]}', { status: 400 });
+    return new Response(JSON.stringify({ result: { image: png.toString('base64') } }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const buffer = await images.aiImageBuffer('a clinic', 0);
+    assert.ok(buffer.length > 0);
+    assert.equal(calls[0].model, '@cf/leonardo/lucid-origin');
+    assert.equal(calls[0].body.width, 1536);
+    assert.equal(calls[1].model, '@cf/black-forest-labs/flux-1-schnell');
+    assert.equal(calls[1].body.width, undefined);
+    await images.aiImageBuffer('again', 0);
+    assert.equal(calls.filter((c) => c.model.includes('lucid')).length, 1, 'refused model is paused');
+  } finally {
+    globalThis.fetch = realFetch;
+    config.images.cfModels = saved;
+    config.cf.accountId = '';
+    config.cf.apiToken = '';
   }
 });

@@ -63,21 +63,36 @@ async function viaGemini(prompt, shape) {
   return Buffer.from(data, 'base64');
 }
 
-async function viaCloudflare(prompt, shape) {
-  const res = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${config.cf.accountId}/ai/run/${config.images.cfModel}`,
-    {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${config.cf.apiToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: full(prompt), steps: 8 }),
-      signal: AbortSignal.timeout(60000),
-    }
-  );
-  if (!res.ok) throw new ProviderError(`Cloudflare image ${res.status}: ${(await res.text()).slice(0, 160)}`, res.status);
+async function viaCloudflareModel(model, prompt, shape) {
+  const fast = /flux-1-schnell/.test(model);
+  const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${config.cf.accountId}/ai/run/${model}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${config.cf.apiToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(fast ? { prompt: full(prompt), steps: 8 } : { prompt: full(prompt), width: shape.w, height: shape.h }),
+    signal: AbortSignal.timeout(90000),
+  });
+  if (!res.ok) throw new ProviderError(`Cloudflare ${model} ${res.status}: ${(await res.text()).slice(0, 160)}`, res.status);
   if (String(res.headers.get('content-type')).startsWith('image/')) return Buffer.from(await res.arrayBuffer());
   const b64 = (await res.json())?.result?.image;
   if (!b64) throw new Error('Cloudflare returned no image');
   return Buffer.from(b64, 'base64');
+}
+
+async function viaCloudflare(prompt, shape) {
+  let lastError = null;
+  for (const model of config.images.cfModels) {
+    if ((pausedUntil.get(`cf:${model}`) || 0) > Date.now()) continue;
+    try {
+      const buffer = await viaCloudflareModel(model, prompt, shape);
+      log.info('cloudflare image model', { model });
+      return buffer;
+    } catch (err) {
+      lastError = err;
+      if ([400, 403, 404, 429].includes(err.status)) pausedUntil.set(`cf:${model}`, Date.now() + 6 * HOUR);
+      log.warn('cloudflare image model failed', { model, error: err.message.slice(0, 200) });
+    }
+  }
+  throw lastError || new ProviderError('All Cloudflare image models are paused', 429);
 }
 
 async function freeOnce(prompt, shape) {

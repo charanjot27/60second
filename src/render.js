@@ -1,6 +1,7 @@
 import { config, siteUrl, botLink } from './config.js';
 import { extrasHtml, EXTRAS_CSS } from './extras.js';
 import { t } from './i18n.js';
+import { classifyIndustry, industryIcon } from './industry.js';
 
 const THEME_COLORS = {
   rose: { accent: '#be185d', soft: '#fdf1f6', darkAccent: '#f472b6', darkSoft: '#2a1620' },
@@ -22,10 +23,13 @@ const ICONS = {
 
 export const SITE_SCRIPT = `(()=>{document.addEventListener("click",e=>{const a=e.target.closest&&e.target.closest("a[href]");if(!a||a.closest("footer"))return;const h=a.getAttribute("href")||"",k=h.startsWith("tel:")?"call":h.includes("wa.me/")?"whatsapp":"";if(k&&navigator.sendBeacon)try{navigator.sendBeacon("/t",k)}catch(_){}});const d=document,b=d.getElementById("bar"),c=d.getElementById("cta");if(b&&c){const v=()=>b.classList.toggle("on",c.getBoundingClientRect().bottom<0);addEventListener("scroll",v,{passive:!0});v()}const l=d.getElementById("lb");if(!l||!l.showModal)return;const m=l.querySelector("img"),n=l.querySelector(".n"),p=[...d.querySelectorAll("[data-i]")];let i=0,x=null;const s=k=>{i=(k+p.length)%p.length;const g=p[i].querySelector("img");m.src=g.dataset.lg;m.alt=g.alt;n.textContent=i+1+" / "+p.length};p.forEach((e,k)=>e.addEventListener("click",()=>{s(k);l.showModal()}));const q=(c,f)=>{const e=l.querySelector(c);e&&e.addEventListener("click",f)};q(".x",()=>l.close());q(".prev",()=>s(i-1));q(".next",()=>s(i+1));l.addEventListener("keydown",e=>{e.key==="ArrowLeft"&&s(i-1);e.key==="ArrowRight"&&s(i+1)});l.addEventListener("click",e=>{e.target===l&&l.close()});l.addEventListener("touchstart",e=>{x=e.touches[0].clientX},{passive:!0});l.addEventListener("touchend",e=>{if(x===null)return;const t=e.changedTouches[0].clientX-x;Math.abs(t)>40&&p.length>1&&s(i+(t<0?1:-1));x=null})})();`;
 
-export function faviconLink(name, color) {
-  const letter = [...String(name || '?').trim()][0]?.toUpperCase() || '?';
+export function faviconLink(site, color) {
   const fill = /^#[0-9a-f]{6}$/i.test(String(color || '')) ? color : '#222222';
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="${fill}"/><text x="32" y="44" font-family="Georgia,serif" font-size="36" font-weight="700" text-anchor="middle" fill="#ffffff">${letter.replace(/[<>&"']/g, '')}</text></svg>`;
+  const n = parseInt(fill.slice(1), 16);
+  const light = 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255) > 170;
+  const stroke = light ? '#1a1a1a' : '#ffffff';
+  const icon = industryIcon(classifyIndustry(site || {}));
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="${fill}"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="${stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${icon}</g></svg>`;
   return `<link rel="icon" href="data:image/svg+xml,${encodeURIComponent(svg)}">`;
 }
 
@@ -201,7 +205,7 @@ export function renderSite(site) {
     geo: map ? { '@type': 'GeoCoordinates', latitude: site.location.lat, longitude: site.location.lng } : undefined,
   };
 
-  const head = `${faviconLink(site.businessName, (THEME_COLORS[site.theme] || THEME_COLORS.slate).accent)}
+  const head = `${faviconLink(site, (THEME_COLORS[site.theme] || THEME_COLORS.slate).accent)}
 <meta name="theme-color" content="${(THEME_COLORS[site.theme] || THEME_COLORS.slate).accent}">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="${e(site.businessName)}">

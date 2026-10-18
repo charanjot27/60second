@@ -28,6 +28,7 @@ export const config = {
     model: env.ANTHROPIC_MODEL || 'claude-opus-5-5',
     fallbackModel: env.ANTHROPIC_FALLBACK_MODEL || '',
     designModel: env.ANTHROPIC_DESIGN_MODEL || 'claude-opus-5-5',
+    designEffort: ['low', 'medium', 'high', 'xhigh', 'max'].includes(env.DESIGN_EFFORT) ? env.DESIGN_EFFORT : 'high',
     timeoutMs: 60000,
   },
   gemini: {
@@ -74,7 +75,10 @@ export const config = {
     openaiKey: env.OPENAI_API_KEY || '',
     openaiModel: env.OPENAI_IMAGE_MODEL || 'gpt-image-1',
     geminiModel: env.GEMINI_IMAGE_MODEL || '',
-    cfModel: env.CF_IMAGE_MODEL || '@cf/black-forest-labs/flux-1-schnell',
+    cfModels: (env.CF_IMAGE_MODELS || env.CF_IMAGE_MODEL || '@cf/leonardo/lucid-origin,@cf/black-forest-labs/flux-1-schnell')
+      .split(',')
+      .map((m) => m.trim())
+      .filter(Boolean),
     pexelsKey: env.PEXELS_API_KEY || '',
     pixabayKey: env.PIXABAY_API_KEY || '',
     unsplashKey: env.UNSPLASH_ACCESS_KEY || '',

@@ -289,7 +289,7 @@ test('generated pages render through the shell', async () => {
   const { renderAdvanced: render } = await import('../src/advanced.js');
   const html = render(site);
   assert.ok(html.includes('<h1>Sweet Crumbs</h1>'));
-  assert.ok(html.includes('https://img/2-lg.webp'));
+  assert.ok(html.includes('<meta property="og:image" content="https://img/1-lg.webp">'), 'owner photo leads');
   assert.ok(html.includes('data-i="0"'));
   assert.ok(html.includes('AI-generated illustrations'));
   assert.ok(html.includes('id="lb"'));
@@ -469,6 +469,8 @@ test('square pictures are cropped to the slot shape', async () => {
   const square = await sharp({ create: { width: 300, height: 300, channels: 3, background: '#468' } }).png().toBuffer();
   config.cf.accountId = 'acc';
   config.cf.apiToken = 'tok';
+  const savedModels = config.images.cfModels;
+  config.images.cfModels = ['@cf/black-forest-labs/flux-1-schnell'];
   const bodies = [];
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
@@ -484,5 +486,6 @@ test('square pictures are cropped to the slot shape', async () => {
     globalThis.fetch = realFetch;
     config.cf.accountId = '';
     config.cf.apiToken = '';
+    config.images.cfModels = savedModels;
   }
 });

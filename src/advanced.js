@@ -127,7 +127,8 @@ function renderGenerated(site) {
   const body = sanitizeBody(fillTemplate(page.body, data));
   const own = (site.photos || []).filter((x) => !x.ai);
   const ai = (site.aiImages || []).filter((x) => x.lg);
-  const og = ai[0] || own[0];
+  const og = own[0] || ai[0];
+  const needsGallery = own.length > 0 && !body.includes('data-i=');
   const title = site.category && site.city
     ? `${site.businessName}, ${site.category} in ${site.city}`
     : site.businessName;
@@ -164,7 +165,7 @@ function renderGenerated(site) {
 <meta name="description" content="${e(description)}">
 <link rel="canonical" href="${e(url)}/">
 <meta name="theme-color" content="${e(page.themeColor || '#222222')}">
-${faviconLink(site.businessName, page.themeColor)}
+${faviconLink(site, page.themeColor)}
 <meta property="og:type" content="website">
 <meta property="og:title" content="${e(title)}">
 <meta property="og:description" content="${e(description)}">
@@ -178,7 +179,7 @@ ${page.fonts ? `<link rel="preconnect" href="https://fonts.googleapis.com"><link
 </head>
 <body>
 ${body}
-${extrasHtml(site)}
+${extrasHtml(site, { gallery: needsGallery ? data.lists.photos : [] })}
 <footer class="sys-footer">
 <p>Made on WhatsApp in 60 seconds with ${e(config.brand)}. <a href="${e(botLink(`Hi, I want a website like ${site.slug}`))}">Make yours</a></p>
 ${creditsHtml(site.aiImages)}
@@ -270,7 +271,7 @@ export function renderAdvanced(site) {
 <meta name="description" content="${e(description)}">
 <link rel="canonical" href="${e(url)}/">
 <meta name="theme-color" content="${e(p.accent)}">
-${faviconLink(site.businessName, p.accent)}
+${faviconLink(site, p.accent)}
 <meta property="og:type" content="website">
 <meta property="og:title" content="${e(title)}">
 <meta property="og:description" content="${e(description)}">
