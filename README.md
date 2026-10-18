@@ -142,6 +142,7 @@ test/
 | `ADMIN_NUMBERS` | Numbers that skip limits and trials, and may send `model check` |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID` | Paid plans; webhook at `https://ROOT_DOMAIN/stripe/webhook` |
 | `TRIAL_HOURS`, `PRICE_LABEL` | Free trial length and the price shown in chat |
+| `TRIALS=on` | Trials without payment (demo mode). Admins send `activate <site>`, `extend <site> <hours>`, `pause <site>` or `status <site>` on WhatsApp |
 | `RENDER_API_KEY` | Connecting owners' own domains |
 | `WA_LEAD_TEMPLATE`, `WA_ALERT_TEMPLATE` | Approved templates for alerts after the 24-hour window |
 | `RESEND_API_KEY`, `ALERT_EMAIL_FROM` | Email copies of enquiry alerts |

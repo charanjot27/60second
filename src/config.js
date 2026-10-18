@@ -55,6 +55,7 @@ export const config = {
     webhookSecret: env.STRIPE_WEBHOOK_SECRET || '',
     priceId: env.STRIPE_PRICE_ID || '',
     trialHours: Number(env.TRIAL_HOURS) || 24,
+    trialsWithoutPayment: /^(on|true|yes|1)$/i.test(env.TRIALS || ''),
     priceLabel: env.PRICE_LABEL || '',
   },
   render: {

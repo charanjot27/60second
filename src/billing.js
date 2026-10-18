@@ -15,6 +15,44 @@ export function billingEnabled() {
   return Boolean(config.billing.stripeSecret && config.billing.priceId);
 }
 
+export function trialsEnabled() {
+  return billingEnabled() || config.billing.trialsWithoutPayment;
+}
+
+export function keepOnlineText(slug) {
+  return billingEnabled()
+    ? `Keep it live${config.billing.priceLabel ? ` for ${config.billing.priceLabel}` : ''}: ${payLink(slug)}`
+    : 'To keep it online, reply *keep it* here and our team will activate it for you.';
+}
+
+export async function activateManually(site, by) {
+  await sites.updateOne(
+    { _id: site._id },
+    {
+      $set: { status: 'active', plan: 'paid', 'billing.status': 'manual', 'billing.paidAt': new Date(), 'billing.activatedBy': by, updatedAt: new Date() },
+      $unset: { expiredAt: '', cancelledAt: '' },
+    }
+  );
+  invalidate(site.slug, site.customDomain);
+  track(site.ownerPhone, 'paid', { slug: site.slug, manual: true });
+  markOutcome(site.slug, 'converted').catch(() => {});
+}
+
+export async function extendTrial(site, hours) {
+  await sites.updateOne(
+    { _id: site._id },
+    {
+      $set: { status: 'trial', trialEndsAt: new Date(Date.now() + hours * HOUR), updatedAt: new Date() },
+      $unset: { expiredAt: '', 'billing.reminderAt': '' },
+    }
+  );
+  invalidate(site.slug, site.customDomain);
+}
+
+export async function pauseSite(site) {
+  await disableSite(site, 'expired', 'paused_by_admin');
+}
+
 export function trialEndsAt(from = new Date()) {
   return new Date(from.getTime() + config.billing.trialHours * HOUR);
 }
@@ -183,7 +221,7 @@ export async function handleStripeEvent(event) {
 }
 
 export async function sweepTrials(now = new Date()) {
-  if (!billingEnabled()) return;
+  if (!trialsEnabled()) return;
   const soon = new Date(now.getTime() + 4 * HOUR);
   const reminders = await sites
     .find({ status: 'trial', trialEndsAt: { $gt: now, $lte: soon }, 'billing.reminderAt': { $exists: false } })
@@ -193,7 +231,7 @@ export async function sweepTrials(now = new Date()) {
     await sites.updateOne({ _id: site._id }, { $set: { 'billing.reminderAt': now } });
     await alertOwner(
       site,
-      `⏳ Your free website ${siteUrl(site.slug)} goes offline in a few hours.\n\nKeep it live${config.billing.priceLabel ? ` for ${config.billing.priceLabel}` : ''}: ${payLink(site.slug)}`,
+      `⏳ Your free website ${siteUrl(site.slug)} goes offline in a few hours.\n\n${keepOnlineText(site.slug)}`,
       'Your free trial ends soon'
     );
   }
@@ -203,7 +241,7 @@ export async function sweepTrials(now = new Date()) {
     await disableSite(site, 'expired', 'trial_ended');
     await alertOwner(
       site,
-      `Your 24-hour free trial has ended, so ${siteUrl(site.slug)} is now offline.\n\nSubscribe to bring it back instantly: ${payLink(site.slug)}`,
+      `Your free trial has ended, so ${siteUrl(site.slug)} is now offline.\n\n${billingEnabled() ? `Subscribe to bring it back instantly: ${payLink(site.slug)}` : 'Reply *keep it* here and our team will bring it back for you.'}`,
       'Your free trial has ended'
     );
   }

@@ -469,3 +469,67 @@ test('typed answers can be corrected, and live voice edits are confirmed first',
     globalThis.fetch = realFetch;
   }
 });
+
+test('demo mode: trials without payment, owner asks to keep it, admin extends and activates', async () => {
+  const saved = { ...config.billing };
+  config.billing.stripeSecret = '';
+  config.billing.priceId = '';
+  config.billing.trialsWithoutPayment = true;
+  config.adminNumbers.push('919999900000');
+  const realFetch = globalThis.fetch;
+  const sent = [];
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    if (u.includes('graph.facebook.com')) {
+      sent.push(JSON.parse(init.body));
+      return new Response('{"messages":[{"id":"w"}]}', { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (u.includes('api.anthropic.com')) {
+      return claudeStream(JSON.stringify({ allowed: true, businessName: 'Demo Cafe', category: 'Cafe', city: 'Mohali', services: ['Coffee'], slugHint: 'democafe', language: 'en' }));
+    }
+    throw new Error(`unexpected fetch ${u}`);
+  };
+  const { handleMessage } = await import('../src/bot.js');
+  const owner = '919833333333';
+  const admin = '919999900000';
+  const say = (from, m) => handleMessage({ id: crypto.randomUUID(), from, name: 'X', type: 'text', text: '', ...m });
+  const textTo = (to) => sent.filter((m) => m.to === to).map((m) => m.text?.body || m.interactive?.body?.text || '').at(-1) || '';
+  try {
+    await say(owner, { text: 'hi' });
+    await say(owner, { type: 'button', buttonId: 'lang_en' });
+    await say(owner, { type: 'button', buttonId: 'mode_text' });
+    await say(owner, { text: 'Demo Cafe' });
+    await say(owner, { text: 'Mohali' });
+    await say(owner, { text: 'coffee' });
+    await say(owner, { type: 'button', buttonId: 'proceed' });
+    await say(owner, { type: 'button', buttonId: 'style_basic' });
+    await say(owner, { type: 'button', buttonId: 'no_photos' });
+    await say(owner, { type: 'button', buttonId: 'slug_ok' });
+    const site = db.sites.docs.find((d) => d.ownerPhone === owner);
+    assert.equal(site.status, 'trial');
+    assert.match(textTo(owner), /free for 24 hours/);
+    assert.match(textTo(owner), /keep it/);
+    assert.doesNotMatch(textTo(owner), /\/pay\//);
+
+    await say(owner, { text: 'keep it' });
+    assert.match(textTo(owner), /Our team will contact you/);
+    assert.match(textTo(admin), new RegExp(`activate ${site.slug}`));
+
+    await say(admin, { text: `extend ${site.slug} 2` });
+    assert.match(textTo(admin), /ends in 2 hours/);
+    assert.ok(new Date(site.trialEndsAt) - Date.now() < 2.1 * 3600e3);
+
+    await say(admin, { text: `activate ${site.slug}` });
+    assert.equal(site.status, 'active');
+    assert.equal(site.plan, 'paid');
+    assert.equal(billing.accessState(site), 'live');
+    assert.match(textTo(owner), /activated/);
+
+    await say(admin, { text: `pause ${site.slug}` });
+    assert.equal(billing.accessState(site), 'expired');
+  } finally {
+    globalThis.fetch = realFetch;
+    Object.assign(config.billing, saved);
+    config.adminNumbers.pop();
+  }
+});

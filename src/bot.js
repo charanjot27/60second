@@ -13,7 +13,17 @@ import { callClaudeRaw, claudeEnabled } from './claude.js';
 import { createArtDirection, generateSitePage, editSite } from './generate.js';
 import { designMemory, recordDesign, markOutcome } from './memory.js';
 import { transcribe } from './voice.js';
-import { billingEnabled, trialEndsAt, accessState, payLink, cancelSubscription } from './billing.js';
+import {
+  billingEnabled,
+  trialsEnabled,
+  trialEndsAt,
+  accessState,
+  payLink,
+  cancelSubscription,
+  activateManually,
+  extendTrial,
+  pauseSite,
+} from './billing.js';
 import { domainsEnabled, normalizeDomain, connectDomain } from './domains.js';
 import { t, LANGS, WELCOME, LANG_BUTTONS } from './i18n.js';
 import { formatPhone } from './render.js';
@@ -26,7 +36,8 @@ const MAX_VIDEOS = config.limits.maxVideos;
 const RESTART = new Set(['restart', 'reset', 'start over', 'start again']);
 const DELETE = new Set(['delete', 'delete my site', 'delete site', 'delete website', 'delete my website']);
 const CHAT = new Set(['hi', 'hii', 'hello', 'hey', 'menu', 'help', 'ok', 'okay', 'thanks', 'thank you', 'namaste', 'sat sri akal', 'start']);
-const PAY = new Set(['pay', 'subscribe', 'activate', 'reactivate', 'upgrade', 'buy', 'plan']);
+const PAY = new Set(['pay', 'subscribe', 'activate', 'reactivate', 'upgrade', 'buy', 'plan', 'keep it', 'keep', 'keep my site']);
+const ADMIN_CMD = /^(activate|extend|pause|status)\s+([a-z0-9-]{3,30})(?:\s+(\d+(?:\.\d+)?))?$/;
 const CANCEL = new Set(['cancel', 'cancel plan', 'cancel my plan', 'cancel subscription', 'cancel my subscription', 'unsubscribe']);
 const LANG_WORDS = { english: 'en', hindi: 'hi', 'हिंदी': 'hi', punjabi: 'pa', 'ਪੰਜਾਬੀ': 'pa' };
 const HISTORY = 5;
@@ -50,8 +61,11 @@ export async function handleMessage(msg) {
   const cmd = (msg.buttonId || text).toLowerCase().replace(/\s+/g, ' ');
 
   let result;
-  if (cmd === 'model check' && config.adminNumbers.includes(String(msg.from))) {
+  const isAdmin = config.adminNumbers.includes(String(msg.from));
+  if (cmd === 'model check' && isAdmin) {
     result = await modelCheck(s);
+  } else if (isAdmin && ADMIN_CMD.test(cmd)) {
+    result = await adminCommand(s, cmd);
   } else if (RESTART.has(cmd)) {
     clearMediaTimer(s._id);
     s.state = 'NEW';
@@ -79,6 +93,31 @@ export async function handleMessage(msg) {
     to: result === DROP_SESSION ? 'DELETED' : s.state,
     ms: Date.now() - started,
   });
+}
+
+async function adminCommand(s, cmd) {
+  const [, action, slug, num] = cmd.match(ADMIN_CMD);
+  const site = await sites.findOne({ slug });
+  if (!site) return sendText(s._id, `No site called ${slug}.`);
+  const url = siteUrl(slug);
+  if (action === 'activate') {
+    await activateManually(site, s._id);
+    await sendText(site.ownerPhone, `✅ Your website is activated and stays live:\n${url}`).catch(() => {});
+    return sendText(s._id, `✅ ${slug} activated. The owner has been told.`);
+  }
+  if (action === 'extend') {
+    const hours = Math.min(Math.max(Number(num) || 24, 0.05), 24 * 90);
+    await extendTrial(site, hours);
+    await sendText(site.ownerPhone, `🎁 Your free trial is extended. ${url} stays live for another ${hours} hours.`).catch(() => {});
+    return sendText(s._id, `⏳ ${slug} trial now ends in ${hours} hours.`);
+  }
+  if (action === 'pause') {
+    await pauseSite(site);
+    return sendText(s._id, `⏸ ${slug} is now offline. Send *activate ${slug}* or *extend ${slug} 24* to bring it back.`);
+  }
+  const state = accessState(site);
+  const left = site.trialEndsAt ? ` · trial ends ${new Date(site.trialEndsAt).toISOString().slice(0, 16).replace('T', ' ')} UTC` : '';
+  return sendText(s._id, `${slug}: ${state} · plan ${site.plan || 'free'}${left}\n${url}`);
 }
 
 async function modelCheck(s) {
@@ -583,7 +622,7 @@ async function offerAlternative(s, slug) {
 }
 
 function onTrial(phone) {
-  return billingEnabled() && !config.adminNumbers.includes(String(phone));
+  return trialsEnabled() && !config.adminNumbers.includes(String(phone));
 }
 
 async function publish(s) {
@@ -652,7 +691,10 @@ async function publish(s) {
     s._id,
     `🎉 Your website is live${secs ? ` (built in ${secs} seconds)` : ''}!\n\n${siteUrl(d.slug)}\n\n` +
       (trial
-        ? `🎁 It's *free for ${config.billing.trialHours} hours*. To keep it online after that${config.billing.priceLabel ? ` (${config.billing.priceLabel})` : ''}, subscribe here (card, Apple Pay or Google Pay):\n${payLink(d.slug)}\n\n`
+        ? `🎁 It's *free for ${config.billing.trialHours} hours*. ` +
+          (billingEnabled()
+            ? `To keep it online after that${config.billing.priceLabel ? ` (${config.billing.priceLabel})` : ''}, subscribe here (card, Apple Pay or Google Pay):\n${payLink(d.slug)}\n\n`
+            : `To keep it online after that, just reply *keep it* here.\n\n`)
         : '') +
       `ℹ️ Your number ${formatPhone(s._id)} is shown for the WhatsApp and Call buttons. To show a different number, send: *number 9876543210*\n` +
       `📍 Share your location pin here to add a map.\n` +
@@ -758,8 +800,20 @@ async function backToLive(s, message) {
   await sendText(s._id, message);
 }
 
-function sendPayLink(s, site) {
-  if (!billingEnabled()) return sendText(s._id, `Your website is live and free for now: ${siteUrl(site.slug)}`);
+async function sendPayLink(s, site) {
+  if (!billingEnabled()) {
+    if (!trialsEnabled() || (site.plan === 'paid' && accessState(site) === 'live')) {
+      return sendText(s._id, `Your website is live: ${siteUrl(site.slug)}`);
+    }
+    track(s._id, 'wants_to_keep', { slug: site.slug });
+    for (const admin of config.adminNumbers) {
+      await sendText(
+        admin,
+        `🔔 ${site.businessName} wants to keep their website.\n${siteUrl(site.slug)}\nOwner: +${site.ownerPhone}\n\nSend *activate ${site.slug}* or *extend ${site.slug} 24*.`
+      ).catch((err) => log.warn('admin alert failed', { error: err.message }));
+    }
+    return sendText(s._id, `🙌 Thank you! Our team will contact you shortly to activate ${siteUrl(site.slug)}.`);
+  }
   if (site.plan === 'paid' && accessState(site) === 'live') {
     return sendText(s._id, `✅ Your plan is active. To cancel, send *cancel plan*.`);
   }
@@ -852,12 +906,12 @@ function liveMenu(s, site) {
     return sendText(
       s._id,
       `⏸ Your website ${url} is offline because ${state === 'expired' ? 'the free trial ended' : 'the plan was cancelled'}.\n\n` +
-        (billingEnabled() ? `Bring it back instantly, pay by card, Apple Pay or Google Pay:\n${payLink(s.slug)}` : 'Message us to reactivate it.')
+        (billingEnabled() ? `Bring it back instantly, pay by card, Apple Pay or Google Pay:\n${payLink(s.slug)}` : 'Reply *keep it* and our team will bring it back for you.')
     );
   }
   const trialNote =
     state === 'trial' && site.trialEndsAt
-      ? `🎁 Free trial: about ${Math.max(1, Math.round((new Date(site.trialEndsAt) - Date.now()) / 3600000))} hours left. Send *pay* to keep it online.\n\n`
+      ? `🎁 Free trial: about ${Math.max(1, Math.round((new Date(site.trialEndsAt) - Date.now()) / 3600000))} hours left. Send *${billingEnabled() ? 'pay' : 'keep it'}* to keep it online.\n\n`
       : '';
   return sendButtons(
     s._id,
