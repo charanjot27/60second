@@ -97,11 +97,11 @@ export async function adminPage(req, res) {
       const b = bucket(s, now);
       const when =
         b === 'paying'
-          ? `Paid ${date(s.billing?.paidAt)}`
+          ? `Paid ${date(s.billing?.paidAt)}${s.billing?.paidUntil ? ` · until ${date(s.billing.paidUntil)}` : ''}${s.billing?.autopay ? ' · autopay' : ''}`
           : b === 'trial'
             ? `Ends ${date(s.trialEndsAt)}`
             : b === 'unpaid'
-              ? `Ended ${date(s.trialEndsAt)}`
+              ? `Ended ${date(s.billing?.paidUntil || s.trialEndsAt)}`
               : b === 'cancelled'
                 ? `Cancelled ${date(s.cancelledAt)}`
                 : '';
@@ -129,9 +129,9 @@ export async function adminCsv(req, res) {
   if (!guard(req, res)) return;
   const { list, leadCounts } = await load();
   const now = Date.now();
-  const header = ['slug', 'business', 'category', 'city', 'owner', 'status', 'style', 'created', 'trial_ends', 'paid_at', 'cancelled_at', 'custom_domain', 'leads'];
+  const header = ['slug', 'business', 'category', 'city', 'owner', 'status', 'style', 'created', 'trial_ends', 'paid_at', 'paid_until', 'autopay', 'cancelled_at', 'custom_domain', 'leads'];
   const lines = list.map((s) =>
-    [s.slug, s.businessName, s.category, s.city, s.ownerPhone, bucket(s, now), s.style || 'basic', date(s.createdAt), date(s.trialEndsAt), date(s.billing?.paidAt), date(s.cancelledAt), s.customDomain, leadCounts[s.slug] || 0]
+    [s.slug, s.businessName, s.category, s.city, s.ownerPhone, bucket(s, now), s.style || 'basic', date(s.createdAt), date(s.trialEndsAt), date(s.billing?.paidAt), date(s.billing?.paidUntil), s.billing?.autopay ? 'yes' : '', date(s.cancelledAt), s.customDomain, leadCounts[s.slug] || 0]
       .map(csvCell)
       .join(',')
   );

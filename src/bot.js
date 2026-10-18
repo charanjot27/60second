@@ -25,6 +25,10 @@ import {
   activateManually,
   extendTrial,
   pauseSite,
+  payMethods,
+  priceLabel,
+  autopayAvailable,
+  shortDate,
 } from './billing.js';
 import { domainsEnabled, normalizeDomain, connectDomain } from './domains.js';
 import { t, LANGS, WELCOME, LANG_BUTTONS } from './i18n.js';
@@ -694,10 +698,10 @@ async function publish(s) {
     s._id,
     `🎉 Your website is live${secs ? ` (built in ${secs} seconds)` : ''}!\n\n${siteUrl(d.slug)}\n\n` +
       (trial
-        ? `🎁 It's *free for ${config.billing.trialHours} hours*. ` +
+        ? `⏳ It's *free for ${config.billing.trialHours} hours*. After that it goes offline automatically.\n` +
           (billingEnabled()
-            ? `To keep it online after that${config.billing.priceLabel ? ` (${config.billing.priceLabel})` : ''}, subscribe here (card, Apple Pay or Google Pay):\n${payLink(d.slug)}\n\n`
-            : `To keep it online after that, just reply *keep it* here.\n\n`)
+            ? `To keep it online, it's *${priceLabel()}*. Pay by ${payMethods()}${autopayAvailable() ? ', one month at a time or with autopay' : ''}:\n${payLink(d.slug)}\n\n`
+            : `To keep it online, just reply *keep it* here.\n\n`)
         : '') +
       `ℹ️ Your number ${formatPhone(s._id)} is shown for the WhatsApp and Call buttons. To show a different number, send: *number 9876543210*\n` +
       `📍 Share your location pin here to add a map.\n` +
@@ -839,11 +843,17 @@ async function sendPayLink(s, site) {
     return sendText(s._id, `🙌 Thank you! Our team will contact you shortly to activate ${siteUrl(site.slug)}.`);
   }
   if (site.plan === 'paid' && accessState(site) === 'live') {
-    return sendText(s._id, `✅ Your plan is active. To cancel, send *cancel plan*.`);
+    if (site.billing?.autopay || !site.billing?.paidUntil) {
+      return sendText(s._id, `✅ Your plan is active${site.billing?.autopay ? ' and autopay renews it every month' : ''}. To cancel, send *cancel plan*.`);
+    }
+    return sendText(
+      s._id,
+      `✅ Paid until *${shortDate(site.billing.paidUntil)}*. To add another month now (${priceLabel()}):\n${payLink(site.slug)}`
+    );
   }
   return sendText(
     s._id,
-    `💳 Subscribe to keep ${siteUrl(site.slug)} online${config.billing.priceLabel ? ` (${config.billing.priceLabel})` : ''}. Pay by card, Apple Pay or Google Pay:\n${payLink(site.slug)}`
+    `💳 Keep ${siteUrl(site.slug)} online for *${priceLabel()}*. Pay by ${payMethods()}${autopayAvailable() ? ', one month at a time or with autopay' : ''}:\n${payLink(site.slug)}`
   );
 }
 
@@ -851,10 +861,16 @@ function askCancel(s, site) {
   if (site.plan !== 'paid' || accessState(site) !== 'live') {
     return sendText(s._id, "You don't have an active plan to cancel.");
   }
+  if (site.billing?.provider === 'razorpay' && !site.billing.autopay && site.billing.paidUntil) {
+    return sendText(
+      s._id,
+      `You're not on autopay, so nothing more will be charged. ${siteUrl(site.slug)} simply goes offline on *${shortDate(site.billing.paidUntil)}* unless you pay again.\n\nTo remove it now, send *delete my site*.`
+    );
+  }
   s.state = 'CONFIRM_CANCEL';
   return sendButtons(
     s._id,
-    `Cancelling stops your plan and takes ${siteUrl(site.slug)} offline right away. Are you sure?`,
+    `Cancelling stops autopay and takes ${siteUrl(site.slug)} offline right away. Are you sure?`,
     [
       { id: 'confirm_cancel', title: 'Yes, cancel' },
       { id: 'keep_plan', title: 'No, keep it' },
@@ -929,8 +945,8 @@ function liveMenu(s, site) {
   if (state === 'expired' || state === 'cancelled') {
     return sendText(
       s._id,
-      `⏸ Your website ${url} is offline because ${state === 'expired' ? 'the free trial ended' : 'the plan was cancelled'}.\n\n` +
-        (billingEnabled() ? `Bring it back instantly, pay by card, Apple Pay or Google Pay:\n${payLink(s.slug)}` : 'Reply *keep it* and our team will bring it back for you.')
+      `⏸ Your website ${url} is offline because ${state === 'cancelled' ? 'the plan was cancelled' : site.plan === 'paid' ? 'the paid month ended' : 'the free trial ended'}.\n\n` +
+        (billingEnabled() ? `Bring it back instantly for ${priceLabel()}, pay by ${payMethods()}:\n${payLink(s.slug)}` : 'Reply *keep it* and our team will bring it back for you.')
     );
   }
   const trialNote =

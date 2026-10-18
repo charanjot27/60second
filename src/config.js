@@ -58,6 +58,15 @@ export const config = {
     trialHours: Number(env.TRIAL_HOURS) || 24,
     trialsWithoutPayment: /^(on|true|yes|1)$/i.test(env.TRIALS || ''),
     priceLabel: env.PRICE_LABEL || '',
+    amount: Math.round((Number(env.PRICE_AMOUNT) || 799) * 100),
+    currency: (env.PRICE_CURRENCY || 'INR').toUpperCase(),
+    periodDays: Number(env.PLAN_DAYS) || 30,
+  },
+  razorpay: {
+    keyId: env.RAZORPAY_KEY_ID || '',
+    keySecret: env.RAZORPAY_KEY_SECRET || '',
+    webhookSecret: env.RAZORPAY_WEBHOOK_SECRET || '',
+    planId: env.RAZORPAY_PLAN_ID || '',
   },
   render: {
     apiKey: env.RENDER_API_KEY || '',

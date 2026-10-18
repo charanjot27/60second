@@ -11,6 +11,7 @@ export const usage = db.collection('usage');
 export const events = db.collection('events');
 export const leads = db.collection('leads');
 export const designs = db.collection('designs');
+export const payments = db.collection('payments');
 
 export async function connect() {
   await client.connect();
@@ -23,6 +24,8 @@ export async function connect() {
     usage.createIndex({ at: 1 }, { expireAfterSeconds: 60 * 60 * 48 }),
     events.createIndex({ type: 1, at: -1 }),
     sites.createIndex({ status: 1, trialEndsAt: 1 }),
+    sites.createIndex({ status: 1, 'billing.paidUntil': 1 }),
+    payments.createIndex({ slug: 1, at: -1 }),
     sites.createIndex({ 'billing.subscriptionId': 1 }, { sparse: true }),
     leads.createIndex({ slug: 1, at: -1 }),
     designs.createIndex({ at: -1 }),

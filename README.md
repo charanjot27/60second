@@ -56,15 +56,18 @@ After launch the owner changes anything by typing it in plain words, for example
 "make the colours dark green" or "add home loans to our services". Opus edits the page,
 the facts or the pictures, and the previous version is kept for `undo`.
 
-Every site starts as a 24-hour free trial when Stripe is configured. The bot sends a payment link
-(card, Apple Pay and Google Pay). Unpaid trials and cancelled plans
-go offline immediately, at render time and in a 5-minute background sweep.
+Every site starts as a 24-hour free trial when billing is configured; admin numbers never get a trial.
+The bot sends a signed payment link where the owner picks one month or monthly autopay and pays
+through Razorpay by UPI, card or Apple Pay. Each payment is re-checked with the Razorpay API
+(status, amount, currency, plan) before it counts, and every payment id is counted once.
+One payment keeps the site online for `PLAN_DAYS`; owners get a reminder three days before the end.
+Unpaid trials, ended months and cancelled plans go offline at render time and in a 5-minute background sweep.
 
 | Command | What it does |
 |---|---|
 | any sentence or voice note | Applies that change to the site (voice notes are read back for confirmation first) |
-| `pay` | Sends the payment link |
-| `cancel plan` | Cancels the subscription and takes the site offline at once |
+| `pay` | Sends the payment link (one month or autopay); paying early adds a month |
+| `cancel plan` | Stops autopay and takes the site offline at once |
 | `connect domain mybusiness.com` | Adds the owner's own domain and sends the DNS records for GoDaddy and others |
 | `leads` | Shows the latest enquiries from the website form |
 | `email you@example.com` | Also sends enquiry alerts by email |
@@ -102,7 +105,8 @@ src/
 ├── gemini.js      Gemini client (fallback designer)
 ├── i18n.js        Onboarding text in English, Hindi and Punjabi
 ├── voice.js       Voice-note transcription (Cloudflare Whisper, Gemini backup)
-├── billing.js     Trials, Stripe Checkout, webhooks, cancellations, expiry sweep
+├── billing.js     Trials, payments, webhooks, cancellations, expiry sweeps
+├── razorpay.js    Razorpay API client and signature checks
 ├── memory.js      Design memory: avoids repeated fonts and colours, learns from paid sites
 ├── designrules.js Design seeds and the hard design rules
 ├── industry.js    Business classes: favicon icon, themes, section pictures and content per class
@@ -156,7 +160,10 @@ test/
 | `CF_ACCOUNT_ID`, `CF_AI_TOKEN`, `CF_IMAGE_MODEL` | Optional Cloudflare Workers AI pictures |
 | `PEXELS_API_KEY`, `UNSPLASH_ACCESS_KEY`, `PIXABAY_API_KEY` | Real stock photos; Claude picks the best stock or AI picture for each spot |
 | `ADMIN_NUMBERS` | Numbers that skip limits and trials, and may send `model check` |
-| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID` | Paid plans; webhook at `https://ROOT_DOMAIN/stripe/webhook` |
+| `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` | Payments by UPI, card and Apple Pay; webhook at `https://ROOT_DOMAIN/razorpay/webhook` |
+| `RAZORPAY_PLAN_ID` | Monthly Razorpay plan for UPI Autopay and card autopay |
+| `PRICE_AMOUNT`, `PRICE_CURRENCY`, `PLAN_DAYS` | Price per month (799 INR by default) and days per payment |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID` | Optional Stripe Checkout instead of Razorpay; webhook at `https://ROOT_DOMAIN/stripe/webhook` |
 | `TRIAL_HOURS`, `PRICE_LABEL` | Free trial length and the price shown in chat |
 | `TRIALS=on` | Trials without payment (demo mode). Admins send `activate <site>`, `extend <site> <hours>`, `pause <site>` or `status <site>` on WhatsApp |
 | `RENDER_API_KEY` | Connecting owners' own domains |

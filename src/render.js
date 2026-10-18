@@ -449,3 +449,23 @@ export function renderMessage(title, text) {
     body: `<main class="center"><div><p class="eyebrow">${e(config.brand)}</p><h1>${e(title)}</h1><p>${e(text)}</p></div></main>`,
   });
 }
+
+const PAY_CSS = `.plans{display:grid;gap:14px;margin:26px auto 0;max-width:420px;text-align:left}
+.plans form{margin:0}.plans button{width:100%;cursor:pointer;font:inherit;text-align:left;display:grid;gap:4px;padding:18px 20px;border-radius:18px;border:2px solid var(--accent);background:var(--card);color:var(--ink)}
+.plans button.primary{background:var(--accent);color:var(--on-accent)}
+.plans b{font-size:18px}.plans span{font-size:14px;opacity:.85}
+.secure{font-size:13px;color:var(--muted);margin-top:22px}`;
+
+export function renderPayPage({ site, key, price, methods, options, note = '' }) {
+  const plan = (o) => `<form method="post" action="/pay/${e(site.slug)}"><input type="hidden" name="k" value="${e(key)}"><input type="hidden" name="plan" value="${e(o.plan)}">
+<button type="submit"${o.primary ? ' class="primary"' : ''}><b>${e(o.title)}</b><span>${e(o.text)}</span></button></form>`;
+  return page({
+    title: `Keep ${site.businessName || site.slug} online`,
+    css: LANDING_CSS + PAY_CSS,
+    robots: 'noindex',
+    body: `<main class="center"><div><p class="eyebrow">${e(config.brand)}</p><h1>Keep your website online</h1>
+<p>${e(`${site.slug}.${config.rootDomain}`)} · ${e(price)}. Pay by ${e(methods)}.${note ? ` ${e(note)}` : ''}</p>
+<div class="plans">${options.map(plan).join('')}</div>
+<p class="secure">🔒 Payments are processed securely by Razorpay. We never see or store your card or UPI details.</p></div></main>`,
+  });
+}

@@ -5,11 +5,28 @@ import { verifySignature, parseIncoming, sendText, markRead } from './whatsapp.j
 import { handleMessage } from './bot.js';
 import { serveSite, isRootHost } from './site.js';
 import { sites } from './db.js';
-import { billingEnabled, createCheckout, verifyPayKey, verifyStripeSignature, handleStripeEvent, sweepTrials, accessState } from './billing.js';
+import {
+  billingEnabled,
+  autopayAvailable,
+  createPayment,
+  confirmPaymentLink,
+  confirmSubscription,
+  handleRazorpayEvent,
+  payMethods,
+  priceLabel,
+  shortDate,
+  verifyPayKey,
+  verifyStripeSignature,
+  handleStripeEvent,
+  sweepTrials,
+  sweepPlans,
+  accessState,
+} from './billing.js';
+import { razorpayEnabled, verifyRazorpayWebhook, verifyLinkCallback, verifySubscriptionCallback } from './razorpay.js';
 import { sweepDomains } from './domains.js';
 import { handleLead, handleTap } from './leads.js';
 import { adminPage, adminCsv } from './admin.js';
-import { renderMessage } from './render.js';
+import { renderMessage, renderPayPage } from './render.js';
 import { enqueue, drain } from './queue.js';
 import { log, hashPhone } from './log.js';
 
@@ -92,23 +109,85 @@ app.post('/stripe/webhook', express.raw({ type: '*/*', limit: '1mb' }), async (r
   }
 });
 
-app.get('/pay/:slug', rootOnly, async (req, res) => {
-  const slug = String(req.params.slug || '').toLowerCase();
-  if (!billingEnabled() || !verifyPayKey(slug, req.query.k)) return page(res, 404, 'Link not valid', 'This payment link is not valid. Ask for a new one on WhatsApp.');
-  const site = await sites.findOne({ slug });
-  if (!site) return page(res, 404, 'Website not found', 'This website no longer exists.');
-  if (site.plan === 'paid' && accessState(site) === 'live') return res.redirect(303, `https://${slug}.${config.rootDomain}`);
+app.post('/razorpay/webhook', express.raw({ type: '*/*', limit: '1mb' }), async (req, res) => {
+  if (!verifyRazorpayWebhook(req.body, req.get('x-razorpay-signature'))) return res.sendStatus(400);
+  let event;
   try {
-    return res.redirect(303, await createCheckout(site));
+    event = JSON.parse(req.body.toString('utf8'));
+  } catch {
+    return res.sendStatus(400);
+  }
+  try {
+    await handleRazorpayEvent(event, req.get('x-razorpay-event-id'));
+    res.sendStatus(200);
   } catch (err) {
-    log.error('checkout failed', err, { slug });
+    log.error('razorpay event failed', err, { type: event?.event });
+    res.sendStatus(500);
+  }
+});
+
+async function payableSite(req, res) {
+  const slug = String(req.params.slug || '').toLowerCase();
+  const key = req.body?.k ?? req.query.k;
+  if (!billingEnabled() || !verifyPayKey(slug, key)) {
+    page(res, 404, 'Link not valid', 'This payment link is not valid. Ask for a new one on WhatsApp.');
+    return null;
+  }
+  const site = await sites.findOne({ slug });
+  if (!site) page(res, 404, 'Website not found', 'This website no longer exists.');
+  return site ? { site, key: String(key) } : null;
+}
+
+const paidLive = (site) => site.plan === 'paid' && accessState(site) === 'live';
+
+app.get('/pay/:slug', rootOnly, async (req, res) => {
+  const found = await payableSite(req, res);
+  if (!found) return;
+  const { site, key } = found;
+  if (paidLive(site) && (site.billing?.autopay || !site.billing?.paidUntil)) {
+    return page(res, 200, 'Your plan is active', `${site.slug}.${config.rootDomain} is live${site.billing?.autopay ? ' and renews by itself every month' : ''}. Nothing to pay right now.`);
+  }
+  if (!razorpayEnabled()) {
+    try {
+      return res.redirect(303, await createPayment(site, 'auto'));
+    } catch (err) {
+      log.error('checkout failed', err, { slug: site.slug });
+      return page(res, 502, 'Payment unavailable', 'Payments are not available right now. Please try again in a few minutes.');
+    }
+  }
+  const options = [{ plan: 'once', title: `Pay for 1 month`, text: `${priceLabel()}. Pay again next month when you want.`, primary: !autopayAvailable() }];
+  if (autopayAvailable()) {
+    options.unshift({ plan: 'auto', title: 'Autopay every month', text: `${priceLabel()}, renews by itself. Cancel anytime on WhatsApp.`, primary: true });
+  }
+  const note = paidLive(site) && site.billing?.paidUntil ? `Paid until ${shortDate(site.billing.paidUntil)}; paying now adds a month.` : '';
+  res.set('Cache-Control', 'no-store').type('html').send(renderPayPage({ site, key, price: priceLabel(), methods: payMethods(), options, note }));
+});
+
+app.post('/pay/:slug', rootOnly, express.urlencoded({ extended: false, limit: '4kb' }), async (req, res) => {
+  const found = await payableSite(req, res);
+  if (!found) return;
+  try {
+    return res.redirect(303, await createPayment(found.site, req.body?.plan === 'auto' ? 'auto' : 'once'));
+  } catch (err) {
+    log.error('checkout failed', err, { slug: found.site.slug });
     return page(res, 502, 'Payment unavailable', 'Payments are not available right now. Please try again in a few minutes.');
   }
 });
 
-app.get('/paid', rootOnly, (_req, res) =>
-  page(res, 200, 'Payment received', 'Thank you! Your website stays live. You will get a confirmation on WhatsApp in a moment.')
-);
+app.get('/paid', rootOnly, async (req, res) => {
+  const q = Object.fromEntries(Object.entries(req.query).map(([k, v]) => [k, String(v)]));
+  let site = null;
+  try {
+    if (razorpayEnabled() && verifyLinkCallback(q)) site = await confirmPaymentLink(q.razorpay_payment_link_id);
+    else if (razorpayEnabled() && verifySubscriptionCallback(q)) site = await confirmSubscription(q.razorpay_subscription_id, q.razorpay_payment_id);
+  } catch (err) {
+    log.error('payment confirmation failed', err);
+  }
+  if (site?.billing?.paidUntil) {
+    return page(res, 200, 'Payment received', `Thank you! ${site.slug}.${config.rootDomain} is live until ${shortDate(site.billing.paidUntil)}. A confirmation is on its way to your WhatsApp.`);
+  }
+  return page(res, 200, 'Thank you', 'We are confirming your payment. You will get a message on WhatsApp in a moment.');
+});
 
 app.get('/admin', rootOnly, (req, res, next) => adminPage(req, res).catch(next));
 app.get('/admin/sites.csv', rootOnly, (req, res, next) => adminCsv(req, res).catch(next));
@@ -121,6 +200,7 @@ app.use(serveSite);
 const SWEEP_MS = 5 * 60 * 1000;
 async function sweep() {
   await sweepTrials().catch((err) => log.error('trial sweep failed', err));
+  await sweepPlans().catch((err) => log.error('plan sweep failed', err));
   await sweepDomains().catch((err) => log.error('domain sweep failed', err));
 }
 

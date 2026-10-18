@@ -44,7 +44,11 @@ function setPath(doc, path, value) {
 
 function applyUpdate(doc, update) {
   for (const [k, v] of Object.entries(update.$set || {})) setPath(doc, k, v);
-  for (const k of Object.keys(update.$unset || {})) delete doc[k];
+  for (const k of Object.keys(update.$unset || {})) {
+    const keys = k.split('.');
+    const parent = keys.slice(0, -1).reduce((o, key) => o?.[key], doc);
+    if (parent) delete parent[keys.at(-1)];
+  }
   for (const [k, v] of Object.entries(update.$inc || {})) doc[k] = (doc[k] || 0) + v;
   for (const [k, v] of Object.entries(update.$push || {})) doc[k] = [...(doc[k] || []), ...(v.$each || [v])].slice(v.$slice ?? 0);
   for (const [k, v] of Object.entries(update.$pop || {})) doc[k] = v > 0 ? (doc[k] || []).slice(0, -1) : (doc[k] || []).slice(1);
@@ -109,7 +113,7 @@ function fakeCollection() {
   };
 }
 
-for (const name of ['sites', 'sessions', 'processed', 'usage', 'events', 'leads', 'designs']) {
+for (const name of ['sites', 'sessions', 'processed', 'usage', 'events', 'leads', 'designs', 'payments']) {
   Object.assign(db[name], fakeCollection());
 }
 
@@ -131,6 +135,7 @@ function claudeStream(text) {
 const { t, LANGS, stringKeys } = await import('../src/i18n.js');
 const { parseIncoming } = await import('../src/whatsapp.js');
 const billing = await import('../src/billing.js');
+const razorpay = await import('../src/razorpay.js');
 const { parseLead } = await import('../src/leads.js');
 const { summarize, bucket } = await import('../src/admin.js');
 const { memoryNote, repeatsRecentFont, fingerprint } = await import('../src/memory.js');
@@ -733,5 +738,164 @@ test('the better Cloudflare model is tried first and falls back to FLUX when ref
     config.images.cfModels = saved;
     config.cf.accountId = '';
     config.cf.apiToken = '';
+  }
+});
+
+function withRazorpay(routes) {
+  const saved = { ...config.razorpay };
+  Object.assign(config.razorpay, { keyId: 'rzp_test_k', keySecret: 'rzp_secret', webhookSecret: 'rzp_hook', planId: 'plan_m' });
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    calls.push({ url: u, method: init?.method || 'GET', body: init?.body ? String(init.body) : '' });
+    const hit = Object.entries(routes).find(([k]) => u.includes(k));
+    const body = hit ? (typeof hit[1] === 'function' ? hit[1](u, init) : hit[1]) : { messages: [{ id: 'x' }] };
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  return {
+    calls,
+    restore() {
+      globalThis.fetch = realFetch;
+      Object.assign(config.razorpay, saved);
+    },
+  };
+}
+
+test('razorpay webhook and checkout callback signatures are checked', () => {
+  const raw = Buffer.from('{"event":"payment_link.paid"}');
+  const sig = crypto.createHmac('sha256', 'rzp_hook').update(raw).digest('hex');
+  assert.ok(razorpay.verifyRazorpayWebhook(raw, sig, 'rzp_hook'));
+  assert.ok(!razorpay.verifyRazorpayWebhook(Buffer.from('{"event":"x"}'), sig, 'rzp_hook'));
+  assert.ok(!razorpay.verifyRazorpayWebhook(raw, sig, ''));
+  assert.ok(!razorpay.verifyRazorpayWebhook(raw, 'abc', 'rzp_hook'));
+
+  const q = { razorpay_payment_link_id: 'plink_1', razorpay_payment_link_reference_id: 'shop-1', razorpay_payment_link_status: 'paid', razorpay_payment_id: 'pay_1' };
+  q.razorpay_signature = crypto.createHmac('sha256', 'rzp_secret').update('plink_1|shop-1|paid|pay_1').digest('hex');
+  assert.ok(razorpay.verifyLinkCallback(q, 'rzp_secret'));
+  assert.ok(!razorpay.verifyLinkCallback({ ...q, razorpay_payment_link_status: 'created' }, 'rzp_secret'));
+  const sq = { razorpay_payment_id: 'pay_2', razorpay_subscription_id: 'sub_9' };
+  sq.razorpay_signature = crypto.createHmac('sha256', 'rzp_secret').update('pay_2|sub_9').digest('hex');
+  assert.ok(razorpay.verifySubscriptionCallback(sq, 'rzp_secret'));
+  assert.ok(!razorpay.verifySubscriptionCallback({ ...sq, razorpay_subscription_id: 'sub_8' }, 'rzp_secret'));
+});
+
+test('one-month payments are confirmed with razorpay, counted once and stack', async () => {
+  const links = {
+    plink_1: { id: 'plink_1', status: 'paid', amount_paid: config.billing.amount, currency: 'INR', notes: { slug: 'upishop' }, payments: [{ payment_id: 'pay_1', status: 'captured' }] },
+    plink_2: { id: 'plink_2', status: 'paid', amount_paid: config.billing.amount, currency: 'INR', notes: { slug: 'upishop' }, payments: [{ payment_id: 'pay_2', status: 'captured' }] },
+    plink_low: { id: 'plink_low', status: 'paid', amount_paid: 100, currency: 'INR', notes: { slug: 'upishop' }, payments: [{ payment_id: 'pay_low', status: 'captured' }] },
+    plink_open: { id: 'plink_open', status: 'created', amount_paid: 0, currency: 'INR', notes: { slug: 'upishop' }, payments: [] },
+  };
+  const rz = withRazorpay({ '/payment_links/': (u) => links[u.split('/').pop()] });
+  try {
+    await db.sites.insertOne({ slug: 'upishop', ownerPhone: '919000000011', businessName: 'UPI Shop', status: 'trial', plan: 'trial', trialEndsAt: new Date(Date.now() + 3600e3) });
+    const event = (id) => ({ event: 'payment_link.paid', payload: { payment_link: { entity: { id } } } });
+
+    await billing.handleRazorpayEvent(event('plink_open'), 'e0');
+    await billing.handleRazorpayEvent(event('plink_low'), 'e1');
+    assert.equal((await db.sites.findOne({ slug: 'upishop' })).status, 'trial');
+
+    await billing.handleRazorpayEvent(event('plink_1'), 'e2');
+    let site = await db.sites.findOne({ slug: 'upishop' });
+    assert.equal(site.status, 'active');
+    assert.equal(site.plan, 'paid');
+    const first = new Date(site.billing.paidUntil).getTime();
+    assert.ok(Math.abs(first - (Date.now() + 30 * 864e5)) < 60e3);
+    assert.equal(billing.accessState(site), 'live');
+    assert.equal(bucket(site), 'paying');
+
+    await billing.handleRazorpayEvent(event('plink_1'), 'e3');
+    await billing.confirmPaymentLink('plink_1');
+    site = await db.sites.findOne({ slug: 'upishop' });
+    assert.equal(new Date(site.billing.paidUntil).getTime(), first);
+
+    await billing.handleRazorpayEvent(event('plink_2'), 'e4');
+    site = await db.sites.findOne({ slug: 'upishop' });
+    assert.ok(Math.abs(new Date(site.billing.paidUntil).getTime() - (first + 30 * 864e5)) < 5e3);
+    assert.equal(rz.calls.filter((c) => c.body.includes('Payment received')).length, 2);
+    assert.ok(await db.payments.findOne({ _id: 'pay_1' }));
+    assert.ok(!(await db.payments.findOne({ _id: 'pay_low' })));
+  } finally {
+    rz.restore();
+  }
+});
+
+test('payment links carry the price, the site and are reused while open', async () => {
+  const rz = withRazorpay({ '/payment_links': { id: 'plink_new', short_url: 'https://rzp.io/i/abc' }, '/subscriptions': { id: 'sub_new', short_url: 'https://rzp.io/i/sub' } });
+  try {
+    await db.sites.insertOne({ slug: 'linkshop', ownerPhone: '919000000012', businessName: 'Link Shop', status: 'trial', plan: 'trial', trialEndsAt: new Date(Date.now() + 3600e3) });
+    let site = await db.sites.findOne({ slug: 'linkshop' });
+    assert.equal(await billing.createPayment(site, 'once'), 'https://rzp.io/i/abc');
+    const made = JSON.parse(rz.calls.find((c) => c.url.endsWith('/payment_links')).body);
+    assert.equal(made.amount, config.billing.amount);
+    assert.equal(made.currency, 'INR');
+    assert.equal(made.notes.slug, 'linkshop');
+    assert.equal(made.accept_partial, false);
+    site = await db.sites.findOne({ slug: 'linkshop' });
+    assert.equal(await billing.createPayment(site, 'once'), 'https://rzp.io/i/abc');
+    assert.equal(rz.calls.filter((c) => c.url.endsWith('/payment_links')).length, 1);
+    assert.equal(await billing.createPayment(site, 'auto'), 'https://rzp.io/i/sub');
+    assert.equal(JSON.parse(rz.calls.find((c) => c.url.endsWith('/subscriptions')).body).plan_id, 'plan_m');
+    assert.equal(billing.payMethods(), 'UPI, card or Apple Pay');
+  } finally {
+    rz.restore();
+  }
+});
+
+test('autopay subscriptions keep a site live, a stopped mandate is reported', async () => {
+  const end = Math.floor(Date.now() / 1000) + 30 * 86400;
+  const subs = {
+    sub_ok: { id: 'sub_ok', plan_id: 'plan_m', status: 'active', current_end: end, notes: { slug: 'autoshop' } },
+    sub_bad: { id: 'sub_bad', plan_id: 'plan_cheap', status: 'active', current_end: end, notes: { slug: 'autoshop' } },
+  };
+  const rz = withRazorpay({ '/subscriptions/': (u) => subs[u.split('/').pop()] });
+  try {
+    await db.sites.insertOne({ slug: 'autoshop', ownerPhone: '919000000013', businessName: 'Auto Shop', status: 'trial', plan: 'trial', trialEndsAt: new Date(Date.now() + 3600e3) });
+    const ev = (name, id, pay) => ({ event: name, payload: { subscription: { entity: { id } }, ...(pay ? { payment: { entity: { id: pay } } } : {}) } });
+
+    await billing.handleRazorpayEvent(ev('subscription.activated', 'sub_bad'), 's0');
+    assert.equal((await db.sites.findOne({ slug: 'autoshop' })).status, 'trial');
+
+    await billing.handleRazorpayEvent(ev('subscription.activated', 'sub_ok', 'pay_a'), 's1');
+    await billing.handleRazorpayEvent(ev('subscription.charged', 'sub_ok', 'pay_a'), 's2');
+    let site = await db.sites.findOne({ slug: 'autoshop' });
+    assert.equal(site.status, 'active');
+    assert.equal(site.billing.autopay, true);
+    assert.equal(site.billing.subscriptionId, 'sub_ok');
+    assert.equal(new Date(site.billing.paidUntil).getTime(), end * 1000 + 2 * 864e5);
+    assert.equal(rz.calls.filter((c) => c.body.includes('Autopay is on')).length, 1);
+
+    await billing.handleRazorpayEvent(ev('subscription.halted', 'sub_ok'), 's3');
+    site = await db.sites.findOne({ slug: 'autoshop' });
+    assert.equal(site.billing.autopay, false);
+    assert.equal(billing.accessState(site), 'live');
+    assert.ok(rz.calls.some((c) => c.body.includes('Autopay for')));
+
+    await billing.cancelSubscription(site);
+    assert.ok(!rz.calls.some((c) => c.url.endsWith('/cancel')));
+    assert.equal((await db.sites.findOne({ slug: 'autoshop' })).status, 'cancelled');
+  } finally {
+    rz.restore();
+  }
+});
+
+test('paid months remind before they end and switch the site off after', async () => {
+  const rz = withRazorpay({});
+  try {
+    const now = new Date();
+    await db.sites.insertOne({ slug: 'endsoon', ownerPhone: '919000000014', businessName: 'Ends Soon', status: 'active', plan: 'paid', billing: { provider: 'razorpay', paidUntil: new Date(now.getTime() + 2 * 864e5) } });
+    await db.sites.insertOne({ slug: 'autorenew', ownerPhone: '919000000015', businessName: 'Auto', status: 'active', plan: 'paid', billing: { provider: 'razorpay', autopay: true, paidUntil: new Date(now.getTime() + 2 * 864e5) } });
+    await db.sites.insertOne({ slug: 'lapsed', ownerPhone: '919000000016', businessName: 'Lapsed', status: 'active', plan: 'paid', billing: { provider: 'razorpay', paidUntil: new Date(now.getTime() - 60e3) } });
+    assert.equal(billing.accessState(await db.sites.findOne({ slug: 'lapsed' })), 'expired');
+    await billing.sweepPlans(now);
+    assert.ok((await db.sites.findOne({ slug: 'endsoon' })).billing.renewReminderAt);
+    assert.ok(!(await db.sites.findOne({ slug: 'autorenew' })).billing.renewReminderAt);
+    assert.equal((await db.sites.findOne({ slug: 'lapsed' })).status, 'expired');
+    assert.equal(bucket(await db.sites.findOne({ slug: 'lapsed' })), 'unpaid');
+    assert.ok(rz.calls.some((c) => c.body.includes('ends on')));
+    assert.ok(rz.calls.some((c) => c.body.includes('paid month has ended')));
+  } finally {
+    rz.restore();
   }
 });
