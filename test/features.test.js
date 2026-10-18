@@ -269,9 +269,15 @@ test('design memory steers away from recently used fonts and colours', () => {
   assert.match(note, /Neon party/);
   assert.ok(repeatsRecentFont({ fonts: { display: { family: 'fraunces' } } }, memory));
   assert.ok(!repeatsRecentFont({ fonts: { display: { family: 'Syne' } } }, memory));
-  assert.deepEqual(fingerprint({ fonts: { display: { family: 'A' }, body: { family: 'B' } }, palette: { accent: '#111111' }, mode: 'dark', concept: 'c' }), {
-    displayFont: 'A', bodyFont: 'B', accent: '#111111', mode: 'dark', concept: 'c',
-  });
+  const fp = fingerprint(
+    { fonts: { display: { family: 'A' }, body: { family: 'B' } }, palette: { accent: '#111111', dominant: '#222222' }, mode: 'dark', concept: 'c', seed: { archetype: 'Swiss', heroLayout: 'split' } },
+    { manifest: { button_style: 'fill sweep', signature_detail: 'steam' } }
+  );
+  assert.equal(fp.displayFont, 'A');
+  assert.equal(fp.dominant, '#222222');
+  assert.equal(fp.seed.archetype, 'Swiss');
+  assert.equal(fp.buttonStyle, 'fill sweep');
+  assert.equal(fp.signature, 'steam');
 });
 
 test('art direction retries once when it repeats a recent font', async () => {
@@ -287,8 +293,10 @@ test('art direction retries once when it repeats a recent font', async () => {
     const brief = await createArtDirection({ businessName: 'Bakes', category: 'Bakery', slug: 'bakes' }, { recent: [{ displayFont: 'Fraunces' }] });
     assert.equal(brief.concept, 'two');
     assert.equal(prompts.length, 2);
-    assert.match(prompts[0], /do NOT reuse/);
-    assert.match(prompts[1], /repeated the display font Fraunces/);
+    assert.match(prompts[0], /DESIGN SEED \(mandatory\)/);
+    assert.match(prompts[0], /RECENTLY USED DESIGNS/);
+    assert.match(prompts[1], /display font Fraunces was already used/);
+    assert.ok(brief.seed.archetype && brief.seed.heroLayout && brief.seed.motion);
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -532,4 +540,41 @@ test('demo mode: trials without payment, owner asks to keep it, admin extends an
     Object.assign(config.billing, saved);
     config.adminNumbers.pop();
   }
+});
+
+test('design rules reject banned fonts, weak contrast, plain greys, indigo and repeated hues', async () => {
+  const { briefIssues, contrast, pickSeed, ARCHETYPES } = await import('../src/designrules.js');
+  const clean = { fonts: { display: { family: 'Syne' } }, palette: { bg: '#f6f1e7', ink: '#1f1a14', accent: '#b4532a', onAccent: '#ffffff' } };
+  assert.deepEqual(briefIssues(clean, { recent: [] }), []);
+  assert.ok(contrast('#000000', '#ffffff') > 20);
+  const join = (b, m = { recent: [] }) => briefIssues(b, m).join(' | ');
+  assert.match(join({ ...clean, fonts: { display: { family: 'Poppins' } } }), /not allowed as the display font/);
+  assert.match(join({ ...clean, palette: { ...clean.palette, ink: '#cfc6b8' } }), /must be at least 4\.5:1/);
+  assert.match(join({ ...clean, palette: { ...clean.palette, bg: '#eeeeee' } }), /plain grey/);
+  assert.match(join({ ...clean, palette: { ...clean.palette, accent: '#6366f1' } }), /tech indigo/);
+  assert.match(join({ ...clean, palette: { ...clean.palette, bg: '#ffffff', ink: '#000000' } }), /pure black on pure white/);
+  assert.match(join(clean, { recent: [{ accent: '#c0582f' }] }), /same hue family/);
+  const recent = Array.from({ length: 6 }, () => ({ seed: { archetype: ARCHETYPES[0] } }));
+  for (let i = 0; i < 20; i++) assert.notEqual(pickSeed({ recent }).archetype, ARCHETYPES[0]);
+});
+
+test('page manifest is parsed, and sound and cursor hooks survive the sanitizer', async () => {
+  const { parseEdit, sanitizeBody } = await import('../src/generate.js');
+  const { ENHANCE_SCRIPT } = await import('../src/enhance.js');
+  const css = 'h1{color:red}\n'.repeat(250);
+  const body = '<div><a href="{{wa}}">{{name}}</a>' + '<p>text</p>'.repeat(400) + '</div>';
+  const meta = { themeColor: '#123456', fonts: [], manifest: { style_archetype: 'Newsprint', palette: { dominant: '#123456', supporting: ['#abcdef', 'bad'], accent: '#ff5500', neutral: '#f4efe6' }, display_font: 'Syne', body_font: 'Figtree', hero_layout: 'poster', button_style: 'fill sweep', signature_detail: 'ink splash', sound: true } };
+  const out = parseEdit(`===SUMMARY===\nok\n===DATA===\n{}\n===IMAGES===\n[]\n===META===\n${JSON.stringify(meta)}\n===CSS===\n${css}\n===BODY===\n${body}\n===END===`);
+  assert.equal(out.page.manifest.style_archetype, 'Newsprint');
+  assert.deepEqual(out.page.manifest.palette.supporting, ['#abcdef']);
+  assert.equal(out.page.manifest.sound, true);
+  const html = sanitizeBody('<button data-sound-toggle aria-pressed="false">Sound</button><span data-cursor></span><a data-sound="chime" href="#x">x</a>');
+  assert.ok(html.includes('data-sound-toggle') && html.includes('data-cursor') && html.includes('data-sound="chime"'));
+  assert.ok(ENHANCE_SCRIPT.includes('[data-sound-toggle]') && ENHANCE_SCRIPT.includes('[data-cursor]') && ENHANCE_SCRIPT.includes('AudioContext'));
+});
+
+test('every site gets an inline SVG favicon in its brand colour', () => {
+  const html = renderSite({ slug: 'shop', businessName: 'Zara Tailors', phone: '919876543210', photos: [], theme: 'forest' });
+  assert.match(html, /<link rel="icon" href="data:image\/svg\+xml,/);
+  assert.ok(decodeURIComponent(html.match(/data:image\/svg\+xml,([^"]+)/)[1]).includes('>Z</text>'));
 });

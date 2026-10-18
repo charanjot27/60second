@@ -180,6 +180,73 @@ function enhance() {
       if (tabs[0]) select(tabs[0].dataset.tab);
     });
 
+    const cursor = d.querySelector('[data-cursor]');
+    if (cursor && fine && !still) {
+      root.classList.add('has-cursor');
+      let x = -100;
+      let y = -100;
+      let queued = false;
+      const place = () => {
+        queued = false;
+        cursor.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -50%)`;
+      };
+      addEventListener('pointermove', (e) => {
+        x = e.clientX;
+        y = e.clientY;
+        cursor.classList.toggle('hover', Boolean(e.target.closest && e.target.closest('a, button')));
+        if (!queued) {
+          queued = true;
+          requestAnimationFrame(place);
+        }
+      }, { passive: true });
+    } else if (cursor) {
+      cursor.style.display = 'none';
+    }
+
+    const toggle = d.querySelector('[data-sound-toggle]');
+    if (toggle) {
+      let audio = null;
+      let on = false;
+      toggle.setAttribute('aria-pressed', 'false');
+      if (!toggle.getAttribute('aria-label')) toggle.setAttribute('aria-label', 'Sound');
+      const tone = (freq, start, length, volume) => {
+        const osc = audio.createOscillator();
+        const gain = audio.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, audio.currentTime + start);
+        gain.gain.setValueAtTime(0.0001, audio.currentTime + start);
+        gain.gain.exponentialRampToValueAtTime(volume, audio.currentTime + start + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + start + length);
+        osc.connect(gain).connect(audio.destination);
+        osc.start(audio.currentTime + start);
+        osc.stop(audio.currentTime + start + length + 0.02);
+      };
+      const play = (kind) => {
+        if (!on || !audio) return;
+        if (kind === 'chime') {
+          tone(880, 0, 0.16, 0.05);
+          tone(1320, 0.06, 0.18, 0.04);
+        } else {
+          tone(520, 0, 0.07, 0.04);
+        }
+      };
+      toggle.addEventListener('click', () => {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        audio = audio || new Ctx();
+        on = !on;
+        if (on && audio.state === 'suspended') audio.resume();
+        toggle.setAttribute('aria-pressed', String(on));
+        root.classList.toggle('sound-on', on);
+        if (on) play('chime');
+      });
+      d.addEventListener('pointerdown', (e) => {
+        const target = e.target.closest && e.target.closest('[data-sound], a, button');
+        if (!target || target === toggle || toggle.contains(target)) return;
+        play(target.getAttribute('data-sound') || 'click');
+      });
+    }
+
     all('[data-carousel]').forEach((box) => {
       const track = box.querySelector('[data-track]') || box.querySelector('.track');
       if (!track) return;

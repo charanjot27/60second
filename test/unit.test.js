@@ -378,7 +378,7 @@ test('art direction returns a per-business brief with picture prompts', async ()
     assert.equal(out.concept, 'Trust in brick and light');
     assert.equal(out.imagePrompts.length, 4);
     assert.match(sent.messages[0].content, /Guru Kirpa Dealers/);
-    assert.match(sent.messages[0].content, /Seed moods: /);
+    assert.match(sent.messages[0].content, /DESIGN SEED \(mandatory\)/);
   } finally {
     globalThis.fetch = realFetch;
     config.ai.apiKey = '';

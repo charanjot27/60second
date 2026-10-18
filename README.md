@@ -35,6 +35,13 @@ and cached for 60 seconds, so publishing is a single insert and is instant.
 | 7 | Suggested address: Use this / Pick another | a tap, or a typed name |
 | ✅ | The live link and how many seconds it took | |
 
+Every Advanced site gets a random design seed (style archetype, colour mood, type direction, hero layout,
+motion personality) that avoids the seeds of recent sites. Hard rules are checked in code and the art
+direction is redone when it breaks one: banned display fonts (Inter, Poppins, Montserrat, Roboto, Open Sans,
+Lato, Raleway), recently used display fonts, contrast below 4.5:1, plain grey neutrals, tech indigo, pure
+black on white, and accents in the same hue family as a recent site. Each finished site stores a design
+manifest that the next sites are told to avoid.
+
 An Advanced site is made in three stages. Opus writes an art direction for that one business
 (palette, fonts, layout, voice and four picture briefs), the pictures are generated from those
 briefs while Opus builds the page, and the page is stored as a sanitized template. Every
@@ -91,6 +98,7 @@ src/
 ├── voice.js       Voice-note transcription (Cloudflare Whisper, Gemini backup)
 ├── billing.js     Trials, Stripe Checkout, webhooks, cancellations, expiry sweep
 ├── memory.js      Design memory: avoids repeated fonts and colours, learns from paid sites
+├── designrules.js Design seeds and the hard design rules
 ├── leads.js       Enquiry form and Call-tap alerts to the owner
 ├── notify.js      WhatsApp (text or template) and email alerts
 ├── domains.js     Owners' own domains through the Render API

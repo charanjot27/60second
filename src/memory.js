@@ -4,12 +4,25 @@ const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 export function fingerprint(brief, page) {
   const fonts = Array.isArray(page?.fontSpec) ? page.fontSpec.map((f) => f?.family).filter(Boolean) : [];
+  const m = page?.manifest || {};
   return {
-    displayFont: brief?.fonts?.display?.family || fonts[0] || '',
-    bodyFont: brief?.fonts?.body?.family || fonts[1] || '',
-    accent: brief?.palette?.accent || page?.themeColor || '',
+    displayFont: brief?.fonts?.display?.family || m.display_font || fonts[0] || '',
+    bodyFont: brief?.fonts?.body?.family || m.body_font || fonts[1] || '',
+    accent: brief?.palette?.accent || m.palette?.accent || page?.themeColor || '',
+    dominant: brief?.palette?.dominant || m.palette?.dominant || '',
     mode: brief?.mode || '',
     concept: String(brief?.concept || '').slice(0, 200),
+    seed: brief?.seed
+      ? {
+          archetype: brief.seed.archetype,
+          colorMood: brief.seed.colorMood,
+          typeDirection: brief.seed.typeDirection,
+          heroLayout: brief.seed.heroLayout,
+          motion: brief.seed.motion,
+        }
+      : null,
+    buttonStyle: String(m.button_style || brief?.buttonStyle || '').slice(0, 160),
+    signature: String(m.signature_detail || brief?.signatureDetail || '').slice(0, 160),
   };
 }
 
@@ -45,13 +58,18 @@ export function memoryNote(memory) {
   const recent = memory.recent || [];
   if (recent.length) {
     const fonts = [...new Set(recent.flatMap((d) => [d.displayFont, d.bodyFont]).filter(Boolean))];
-    const accents = [...new Set(recent.map((d) => d.accent).filter(Boolean))];
-    lines.push(
-      'Recently used on other sites, so do NOT reuse these font families or near-identical accent colours:',
-      `- fonts: ${fonts.join(', ') || 'none yet'}`,
-      `- accents: ${accents.join(', ') || 'none yet'}`,
-      `- concepts: ${recent.map((d) => d.concept).filter(Boolean).slice(0, 6).join(' | ') || 'none yet'}`
-    );
+    lines.push(`Fonts already used (never reuse these display fonts): ${fonts.join(', ') || 'none yet'}`);
+    lines.push('Recent design manifests:');
+    for (const d of recent.slice(0, 8)) {
+      lines.push(
+        `- ${d.category || 'business'}: ${d.seed?.archetype?.split(':')[0] || d.concept || 'design'}; ` +
+          `palette ${[d.dominant, d.accent].filter(Boolean).join(' + ') || 'unknown'}; ` +
+          `fonts ${[d.displayFont, d.bodyFont].filter(Boolean).join(' + ') || 'unknown'}; ` +
+          `hero ${d.seed?.heroLayout?.split(':')[0] || 'unknown'}` +
+          (d.buttonStyle ? `; buttons ${d.buttonStyle}` : '') +
+          (d.signature ? `; signature ${d.signature}` : '')
+      );
+    }
   }
   if (memory.liked?.length) {
     lines.push(

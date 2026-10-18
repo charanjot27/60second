@@ -1,6 +1,6 @@
 import { config, siteUrl, botLink } from './config.js';
 import { FONT_PAIRS, palette } from './design.js';
-import { SITE_SCRIPT, escapeHtml as e, formatPhone } from './render.js';
+import { SITE_SCRIPT, escapeHtml as e, formatPhone, faviconLink } from './render.js';
 import { ENHANCE_SCRIPT } from './enhance.js';
 import { extrasHtml, EXTRAS_CSS } from './extras.js';
 import { buildData, fillTemplate, sanitizeBody, pageCss } from './generate.js';
@@ -164,6 +164,7 @@ function renderGenerated(site) {
 <meta name="description" content="${e(description)}">
 <link rel="canonical" href="${e(url)}/">
 <meta name="theme-color" content="${e(page.themeColor || '#222222')}">
+${faviconLink(site.businessName, page.themeColor)}
 <meta property="og:type" content="website">
 <meta property="og:title" content="${e(title)}">
 <meta property="og:description" content="${e(description)}">
@@ -269,6 +270,7 @@ export function renderAdvanced(site) {
 <meta name="description" content="${e(description)}">
 <link rel="canonical" href="${e(url)}/">
 <meta name="theme-color" content="${e(p.accent)}">
+${faviconLink(site.businessName, p.accent)}
 <meta property="og:type" content="website">
 <meta property="og:title" content="${e(title)}">
 <meta property="og:description" content="${e(description)}">
