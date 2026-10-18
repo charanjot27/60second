@@ -4,6 +4,7 @@ import { log } from './log.js';
 import { callGemini, geminiEnabled } from './gemini.js';
 import { callClaude, claudeEnabled } from './claude.js';
 import { escapeHtml } from './render.js';
+import { memoryNote, repeatsRecentFont } from './memory.js';
 
 const SEEDS = [
   'quiet luxury', 'sunlit and airy', 'bold and graphic', 'editorial magazine', 'warm and handmade', 'crisp and technical',
@@ -14,10 +15,13 @@ const SEEDS = [
 
 const ART_PROMPT = `You are the creative director of a top brand studio. For one small business in India you create the art direction for its one-page website, which a designer-engineer will build next.
 
+First understand the business itself: who its customers are, why they would choose it over the shop next door, what builds their trust, and the one action that matters most (for most businesses, a WhatsApp message). Let that drive every design decision.
+
 Every business must get its own identity. Derive the palette, typography, layout and imagery from what this business is, who its customers are and how it should feel: a property dealer, a bakery and a coaching centre must look nothing alike, and two bakeries should not look alike either. The seed moods you receive are optional nudges for variety; use one only if it suits the business.
 
 Reply with JSON only:
 {
+  "fundamentals": {"customers": "who buys and why", "whyChoose": "what makes this business the right choice, from the facts only", "trust": "what will build trust on the page, using only the facts given", "primaryAction": "the single most important action for a visitor"},
   "concept": "the one-sentence idea behind the design",
   "audience": "who the customers are and what they care about",
   "voice": "how the copy should sound",
@@ -32,6 +36,7 @@ Reply with JSON only:
 
 Palette: accessible contrast (ink on bg at least 7:1, onAccent on accent at least 4.5:1). No purple-to-blue gradients or neon unless the business truly calls for it.
 Fonts: real Google Fonts families with the weights they actually offer; a characterful display face paired with a highly readable body face. For Hindi use Noto Sans Devanagari or Mukta for body text, for Punjabi use Noto Sans Gurmukhi or Mukta Mahee.
+Variety: you will see the fonts, accent colours and concepts already used on other sites. Pick fonts and an accent that are clearly different from those, so no two sites look alike.
 Picture briefs: photorealistic scenes that fit this exact kind of business in its city or region, each with subject, setting, time of day, light, lens and composition, and colour grading that matches the palette. Brief 1 is the wide hero, 2 is a tall portrait, 3 is a wide atmospheric band, 4 is a square close detail. No text, signage or logos in the pictures, no identifiable faces (people seen from behind, hands or at a distance are fine), and nothing the business did not say it offers.`;
 
 const PAGE_PROMPT = `You are a principal designer-engineer. You build one-page websites for small Indian businesses that look like a top studio spent weeks on them: distinctive, confident, alive with considered motion, and unmistakably made for this business. You receive the business facts and an art direction from your creative director. Realise that direction with real craft, and improve on it wherever your judgement says so.
@@ -45,7 +50,8 @@ What great looks like
 - Copy written for this business and its customers: specific, warm and concrete, in the requested language. Write the section copy and a short description for each service yourself, grounded in the facts you are given.
 
 Honesty, never broken
-- Never invent facts: no prices, years in business, customer counts, ratings, reviews, testimonials, awards, certifications, partner logos, addresses, opening hours, listings or offers. Describing what the business does and how working with it feels is fine.
+- Never invent facts: no prices, years in business, customer counts, ratings, reviews, testimonials, awards, certifications, partner logos, addresses, opening hours or timings, email addresses, social media handles, listings or offers. Use only the facts given; describing what the business does and how working with it feels is fine.
+- Only show an address or a map when the matching placeholder block has data, never write one yourself.
 - Never use: revolutionize, unlock, seamless, supercharge, elevate, "in today's fast-paced world", "welcome to our website", lorem ipsum.
 
 OUTPUT FORMAT, exactly this with no markdown fences and nothing before or after:
@@ -61,7 +67,8 @@ TECHNICAL CONTRACT
 - BODY is an HTML fragment for inside <body>. Allowed tags: header nav main section article aside footer div span p h1-h4 ul ol li a img figure figcaption button strong em b i small mark sup br hr blockquote details summary dl dt dd address, and inline svg (path circle rect g defs linearGradient radialGradient stop line polyline polygon ellipse text tspan pattern mask clipPath use symbol). No script, style, link, form, input, iframe, video or inline style attributes: class names only.
 - CSS is plain CSS: no @import, no @font-face, no url(). Use as much CSS as the design needs.
 - Pictures only through the image placeholders below; never external URLs. Icons as inline SVG in one consistent style.
-- Do not add the site footer, the sticky bottom contact bar or the photo lightbox: the system adds them. Leave about 90px of bottom padding on the last section for the contact bar on phones.
+- Do not add the site footer, the sticky bottom contact bar, the photo lightbox, an enquiry form or a videos section: the system adds them below your page.
+- When the owner has no photos and a picture block is empty, compose premium visuals from CSS and inline SVG instead (refined iconography, typographic art, geometric illustration in the palette), never empty boxes or cartoon clip art. Leave about 90px of bottom padding on the last section for the contact bar on phones.
 - Respect prefers-reduced-motion and give every interactive element a visible :focus-visible state.
 
 INTERACTION HOOKS (a trusted script wires these up; everything must still look right without it)
@@ -126,9 +133,11 @@ function facts(site) {
     businessName: site.businessName,
     category: site.category,
     city: site.city,
+    area: site.area || '',
     tagline: site.tagline,
     description: site.description,
     services: site.services || [],
+    ownerWords: String(site.ownerWords || '').slice(0, 1500),
     language: site.language || 'en',
     ownerPhotoCount: (site.photos || []).filter((p) => !p.ai).length,
     hasAddress: Boolean(site.location?.address || site.location?.name),
@@ -404,12 +413,24 @@ function cleanBrief(brief) {
   return { ...brief, imagePrompts: prompts };
 }
 
-export async function createArtDirection(site) {
-  const user = `Business facts:\n${JSON.stringify(facts(site), null, 2)}\n\nSeed moods: ${pickSeeds(site.slug || site.businessName).join(', ')}`;
+export async function createArtDirection(site, memory = null) {
+  const note = memoryNote(memory);
+  const base =
+    `Business facts:\n${JSON.stringify(facts(site), null, 2)}\n\n` +
+    `Seed moods: ${pickSeeds(site.slug || site.businessName).join(', ')}` +
+    (note ? `\n\n${note}` : '');
   for (const provider of providers()) {
     try {
-      const raw = await ask(provider, { system: ART_PROMPT, user, maxTokens: 16000, effort: 'medium', timeoutMs: 180000, json: true });
-      return cleanBrief(parseJsonLoose(raw));
+      let brief = null;
+      for (const retry of [false, true]) {
+        const user = retry
+          ? `${base}\n\nYour last choice repeated the display font ${brief?.fonts?.display?.family}, which another site already uses. Choose a different font pairing and accent.`
+          : base;
+        const raw = await ask(provider, { system: ART_PROMPT, user, maxTokens: 16000, effort: 'medium', timeoutMs: 180000, json: true });
+        brief = cleanBrief(parseJsonLoose(raw));
+        if (!repeatsRecentFont(brief, memory)) break;
+      }
+      return brief;
     } catch (err) {
       log.warn('art direction failed', { provider, error: err.message });
     }

@@ -9,6 +9,8 @@ export const sessions = db.collection('sessions');
 export const processed = db.collection('processed');
 export const usage = db.collection('usage');
 export const events = db.collection('events');
+export const leads = db.collection('leads');
+export const designs = db.collection('designs');
 
 export async function connect() {
   await client.connect();
@@ -20,6 +22,11 @@ export async function connect() {
     processed.createIndex({ at: 1 }, { expireAfterSeconds: 60 * 60 * 24 }),
     usage.createIndex({ at: 1 }, { expireAfterSeconds: 60 * 60 * 48 }),
     events.createIndex({ type: 1, at: -1 }),
+    sites.createIndex({ status: 1, trialEndsAt: 1 }),
+    sites.createIndex({ 'billing.subscriptionId': 1 }, { sparse: true }),
+    leads.createIndex({ slug: 1, at: -1 }),
+    designs.createIndex({ at: -1 }),
+    designs.createIndex({ category: 1, outcome: 1, at: -1 }),
   ]);
 }
 

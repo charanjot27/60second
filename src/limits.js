@@ -21,6 +21,9 @@ export const allowPhoto = (phone, limit) => allow(phone, 'photo', limit, HOUR);
 export const allowAdvanced = (phone, limit) => allow(phone, 'adv', limit, DAY);
 export const allowNewSite = (phone, limit) => allow(phone, 'site', limit, DAY);
 export const allowEdit = (phone, limit) => allow(phone, 'edit', limit, DAY);
+export const allowVoice = (phone, limit) => allow(phone, 'voice', limit, DAY);
+export const allowLead = (ip) => allow(`ip:${ip}`, 'lead', 5, HOUR);
+export const allowTapAlert = (slug) => allow(`site:${slug}`, 'tap', 1, 15 * 60 * 1000);
 
 export function track(phone, type, data = {}) {
   events

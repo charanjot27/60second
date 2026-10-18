@@ -19,6 +19,9 @@ export const config = {
     appSecret: env.WA_APP_SECRET || '',
     verifyToken: env.WA_VERIFY_TOKEN || '',
     apiVersion: env.WA_API_VERSION || 'v21.0',
+    leadTemplate: env.WA_LEAD_TEMPLATE || '',
+    alertTemplate: env.WA_ALERT_TEMPLATE || '',
+    templateLang: env.WA_TEMPLATE_LANG || 'en',
   },
   ai: {
     apiKey: env.ANTHROPIC_API_KEY || '',
@@ -45,7 +48,27 @@ export const config = {
   cf: {
     accountId: env.CF_ACCOUNT_ID || '',
     apiToken: env.CF_AI_TOKEN || '',
+    whisperModel: env.CF_WHISPER_MODEL || '@cf/openai/whisper-large-v3-turbo',
   },
+  billing: {
+    stripeSecret: env.STRIPE_SECRET_KEY || '',
+    webhookSecret: env.STRIPE_WEBHOOK_SECRET || '',
+    priceId: env.STRIPE_PRICE_ID || '',
+    trialHours: Number(env.TRIAL_HOURS) || 24,
+    priceLabel: env.PRICE_LABEL || '',
+  },
+  render: {
+    apiKey: env.RENDER_API_KEY || '',
+    serviceId: env.RENDER_SERVICE_ID || '',
+    hostname: env.RENDER_EXTERNAL_HOSTNAME || '',
+    apexIp: env.RENDER_APEX_IP || '216.24.57.1',
+  },
+  email: {
+    resendKey: env.RESEND_API_KEY || '',
+    from: env.ALERT_EMAIL_FROM || '',
+  },
+  adminPassword: env.ADMIN_PASSWORD || '',
+  linkSecret: env.LINK_SECRET || env.WA_APP_SECRET || 'site60-links',
   images: {
     openaiKey: env.OPENAI_API_KEY || '',
     openaiModel: env.OPENAI_IMAGE_MODEL || 'gpt-image-1',
@@ -64,6 +87,8 @@ export const config = {
     photosPerHour: Number(env.LIMIT_PHOTOS_PER_HOUR) || 20,
     advancedPerDay: Number(env.LIMIT_ADVANCED_PER_DAY) || 3,
     editsPerDay: Number(env.LIMIT_EDITS_PER_DAY) || 15,
+    voicePerDay: Number(env.LIMIT_VOICE_PER_DAY) || 20,
+    maxVideos: 2,
   },
 };
 

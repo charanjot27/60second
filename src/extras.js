@@ -1,0 +1,35 @@
+import { t } from './i18n.js';
+
+const e = (value) =>
+  String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+export const EXTRAS_CSS = `.sx{max-width:1120px;margin:0 auto;padding:56px 20px;color:inherit}
+.sx h2{font-size:clamp(26px,4vw,38px);line-height:1.1;margin:0 0 20px;letter-spacing:-.01em}
+.sx-videos{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.sx-videos video{display:block;width:100%;max-height:72vh;border-radius:16px;background:#000;object-fit:contain}
+.sx-form{display:grid;gap:14px;max-width:560px}
+.sx-form label{display:grid;gap:6px;font-weight:600;font-size:15px}
+.sx-form input,.sx-form textarea{font:inherit;font-weight:400;color:inherit;background:transparent;padding:14px 16px;border-radius:12px;border:1.5px solid currentColor;width:100%}
+.sx-form textarea{min-height:120px;resize:vertical}
+.sx-form button{justify-self:start;font:inherit;font-weight:700;color:inherit;background:transparent;min-height:52px;padding:0 30px;border-radius:999px;border:2px solid currentColor;cursor:pointer}
+.sx-form button:hover{opacity:.85}
+.sx-hp{position:absolute!important;left:-9999px!important;width:1px;height:1px;overflow:hidden}`;
+
+export function extrasHtml(site) {
+  const lang = site.language || 'en';
+  const videos = (site.videos || []).filter((v) => v?.url);
+  const videoBlock = videos.length
+    ? `<section class="sx" id="videos" aria-label="${e(t(lang, 'videos_title'))}"><h2>${e(t(lang, 'videos_title'))}</h2><div class="sx-videos">${videos
+        .map((v) => `<video controls playsinline preload="metadata" src="${e(v.url)}"></video>`)
+        .join('')}</div></section>`
+    : '';
+  const form = `<section class="sx" id="enquiry"><h2>${e(t(lang, 'form_title'))}</h2>
+<form class="sx-form" method="post" action="/lead">
+<label>${e(t(lang, 'form_name'))}<input name="name" required maxlength="80" autocomplete="name"></label>
+<label>${e(t(lang, 'form_phone'))}<input name="phone" required inputmode="tel" maxlength="20" autocomplete="tel"></label>
+<label>${e(t(lang, 'form_message'))}<textarea name="message" maxlength="1000"></textarea></label>
+<div class="sx-hp" aria-hidden="true"><label>Website<input name="website" tabindex="-1" autocomplete="off"></label></div>
+<button type="submit">${e(t(lang, 'form_send'))}</button>
+</form></section>`;
+  return videoBlock + form;
+}

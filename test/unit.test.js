@@ -63,7 +63,7 @@ test('sanitize clamps AI output', () => {
       allowed: true,
       businessName: '  Sweet   Crumbs ',
       tagline: 'x'.repeat(200),
-      services: ['Cakes', 'Cakes', '', 'Cupcakes', 'a', 'b', 'c', 'd', 'e'],
+      services: ['Cakes', 'Cakes', '', 'Cupcakes', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'],
       theme: 'neon',
       slugHint: 'Sweet Crumbs!',
     },
@@ -71,7 +71,7 @@ test('sanitize clamps AI output', () => {
   );
   assert.equal(out.businessName, 'Sweet Crumbs');
   assert.equal(out.tagline.length, 80);
-  assert.deepEqual(out.services, ['Cakes', 'Cupcakes', 'a', 'b', 'c', 'd']);
+  assert.deepEqual(out.services, ['Cakes', 'Cupcakes', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
   assert.equal(out.theme, 'slate');
   assert.equal(out.slugHint, 'sweetcrumbs');
   assert.equal(sanitize({ allowed: false }, 'x').allowed, false);

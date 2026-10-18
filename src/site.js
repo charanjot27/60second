@@ -9,10 +9,13 @@ import {
   renderLanding,
   renderNotFound,
   renderSuspended,
+  renderPaused,
+  renderThanks,
   renderPrivacy,
   renderTerms,
 } from './render.js';
 import { renderAdvanced } from './advanced.js';
+import { accessState } from './billing.js';
 
 const TTL = 60_000;
 const MAX_ENTRIES = 5000;
@@ -25,11 +28,13 @@ const imageOrigin = config.imageBase ? new URL(config.imageBase).origin : '';
 const CSP = [
   "default-src 'none'",
   `img-src 'self' data: ${imageOrigin}`.trim(),
+  `media-src ${imageOrigin || "'self'"}`,
   "style-src 'unsafe-inline' https://fonts.googleapis.com",
   'font-src https://fonts.gstatic.com',
   `script-src ${scriptSources}`,
+  "connect-src 'self'",
   "base-uri 'none'",
-  "form-action 'none'",
+  "form-action 'self'",
   "frame-ancestors 'none'",
 ].join('; ');
 
@@ -43,15 +48,52 @@ function remember(key, value) {
   cache.set(key, { value, at: Date.now() });
 }
 
+function render(site) {
+  return site.style === 'advanced' && site.design ? renderAdvanced(site) : renderSite(site);
+}
+
+export function hostQuery(host) {
+  if (host.endsWith(`.${config.rootDomain}`)) {
+    const slug = host.slice(0, -(config.rootDomain.length + 1));
+    if (!slug || slug.includes('.')) return null;
+    return { key: `s:${slug}`, query: { slug }, slug };
+  }
+  const bare = host.replace(/^www\./, '');
+  return { key: `d:${bare}`, query: { customDomain: bare }, slug: null };
+}
+
 async function findSite(key, query) {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < TTL) return hit.value;
   const site = await sites.findOne(query);
   const value = site
-    ? { status: site.status || 'active', html: site.status === 'suspended' ? null : site.style === 'advanced' && site.design ? renderAdvanced(site) : renderSite(site) }
+    ? {
+        site: {
+          _id: site._id,
+          slug: site.slug,
+          status: site.status || 'active',
+          trialEndsAt: site.trialEndsAt,
+          businessName: site.businessName,
+          language: site.language,
+          ownerPhone: site.ownerPhone,
+          notifyEmail: site.notifyEmail,
+          customDomain: site.customDomain,
+        },
+        html: site.status === 'suspended' ? null : render(site),
+      }
     : null;
   remember(key, value);
   return value;
+}
+
+export async function siteForRequest(req) {
+  const host = String(req.hostname || '').toLowerCase();
+  const devSlug = !config.isProd && typeof req.query?.site === 'string' ? req.query.site.toLowerCase() : null;
+  if (!devSlug && isRootHost(host)) return null;
+  const target = devSlug ? { key: `s:${devSlug}`, query: { slug: devSlug }, slug: devSlug } : hostQuery(host);
+  if (!target) return null;
+  const found = await findSite(target.key, target.query);
+  return found ? { ...found, slug: target.slug } : { site: null, html: null, slug: target.slug };
 }
 
 function send(res, status, html, cacheSeconds = 60) {
@@ -59,7 +101,7 @@ function send(res, status, html, cacheSeconds = 60) {
     .status(status)
     .set({
       'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': status === 200 ? `public, max-age=${cacheSeconds}` : 'public, max-age=30',
+      'Cache-Control': status === 200 ? `public, max-age=${cacheSeconds}` : 'no-store',
       'Content-Security-Policy': CSP,
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -79,7 +121,7 @@ export async function serveSite(req, res) {
   if (req.path === '/favicon.ico') return res.status(204).end();
 
   const host = String(req.hostname || '').toLowerCase();
-  const devSlug = !config.isProd && typeof req.query.site === 'string' ? req.query.site.toLowerCase() : null;
+  const devSlug = !config.isProd && typeof req.query.site === 'string';
 
   try {
     if (!devSlug && isRootHost(host)) {
@@ -89,30 +131,16 @@ export async function serveSite(req, res) {
       return send(res, 404, renderNotFound());
     }
 
-    let key;
-    let query;
-    let slug = null;
-    if (devSlug) {
-      slug = devSlug;
-    } else if (host.endsWith(`.${config.rootDomain}`)) {
-      slug = host.slice(0, -(config.rootDomain.length + 1));
-      if (slug.includes('.')) return send(res, 404, renderNotFound());
-    }
+    const found = await siteForRequest(req);
+    if (!found) return send(res, 404, renderNotFound());
+    if (!found.site) return send(res, 404, renderNotFound(found.slug));
+    if (req.path === '/thanks') return send(res, 200, renderThanks(found.site), 0);
+    if (req.path !== '/') return send(res, 404, renderNotFound(found.slug));
 
-    if (slug) {
-      key = `s:${slug}`;
-      query = { slug };
-    } else {
-      key = `d:${host}`;
-      query = { customDomain: host };
-    }
-
-    if (req.path !== '/') return send(res, 404, renderNotFound(slug));
-
-    const found = await findSite(key, query);
-    if (!found || found.status === 'deleted') return send(res, 404, renderNotFound(slug));
-    if (found.status === 'suspended') return send(res, 410, renderSuspended());
-    return send(res, 200, found.html);
+    const state = accessState(found.site);
+    if (state === 'suspended') return send(res, 410, renderSuspended());
+    if (state === 'expired' || state === 'cancelled') return send(res, 402, renderPaused(found.site));
+    return send(res, 200, found.html, state === 'trial' ? 30 : 60);
   } catch (err) {
     log.error('site render failed', err, { host });
     return res.status(500).type('text/plain').send('Something went wrong. Please try again.');

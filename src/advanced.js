@@ -2,6 +2,7 @@ import { config, siteUrl, botLink } from './config.js';
 import { FONT_PAIRS, palette } from './design.js';
 import { SITE_SCRIPT, escapeHtml as e, formatPhone } from './render.js';
 import { ENHANCE_SCRIPT } from './enhance.js';
+import { extrasHtml, EXTRAS_CSS } from './extras.js';
 import { buildData, fillTemplate, sanitizeBody, pageCss } from './generate.js';
 
 const WA_ICON =
@@ -172,10 +173,11 @@ ${og ? `<meta property="og:image" content="${e(og.lg)}">` : ''}
 ${page.fonts ? `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="${e(page.fonts)}">` : ''}
 <script type="application/ld+json">${ld}</script>
 <script>${ENHANCE_SCRIPT}</script>
-<style>${SHELL_CSS}${pageCss(page.css)}</style>
+<style>${SHELL_CSS}${pageCss(page.css)}${EXTRAS_CSS}</style>
 </head>
 <body>
 ${body}
+${extrasHtml(site)}
 <footer class="sys-footer">
 <p>Made on WhatsApp in 60 seconds with ${e(config.brand)}. <a href="${e(botLink(`Hi, I want a website like ${site.slug}`))}">Make yours</a></p>
 ${ai.length ? '<p>Some pictures are AI-generated illustrations.</p>' : ''}
@@ -277,7 +279,7 @@ ${og ? `<meta property="og:image" content="${e(og.lg)}">` : ''}
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="${e(fontUrl)}">
 <script type="application/ld+json">${ld}</script>
-<style>${css(d, p, font)}</style>
+<style>${css(d, p, font)}${EXTRAS_CSS}</style>
 </head>
 <body>
 ${heroBlock}
@@ -287,6 +289,7 @@ ${services}
 ${galleryBlock}
 <section class="contact"><div class="wrap"><div class="box"><h2>Let's talk</h2><dl>${phone ? `<div><dt>Phone and WhatsApp</dt><dd><a href="${e(telHref)}">${e(formatPhone(phone))}</a></dd></div>` : ''}${address || site.city ? `<div><dt>Location</dt><dd>${e(address || site.city)}</dd></div>` : ''}${map ? `<div><dt>Directions</dt><dd><a href="${e(map)}" rel="noopener">Open in Google Maps</a></dd></div>` : ''}</dl><div class="cta">${buttons('WhatsApp us')}</div></div></div></section>
 </main>
+${extrasHtml(site)}
 <footer>
 <p>Made on WhatsApp in 60 seconds with ${e(config.brand)}. <a href="${e(botLink(`Hi, I want a website like ${site.slug}`))}">Make yours</a></p>
 <p><a href="mailto:${e(config.abuseEmail)}?subject=${encodeURIComponent(`Report ${site.slug}`)}">Report this site</a></p>

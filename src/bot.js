@@ -1,29 +1,38 @@
 import { config, siteUrl } from './config.js';
-import { sessions, sites, isDuplicateKey } from './db.js';
+import { sessions, sites, leads, isDuplicateKey } from './db.js';
 import { sendText, sendButtons, downloadMedia } from './whatsapp.js';
 import { extractBusiness } from './ai.js';
-import { processAndUpload, deletePhotos } from './storage.js';
+import { processAndUpload, uploadVideo, deletePhotos, deleteVideos } from './storage.js';
 import { isTaken, suggestSlug, parseSlugInput, slugProblem } from './slug.js';
 import { invalidate } from './site.js';
 import { enqueue } from './queue.js';
-import { allowAiCall, allowPhoto, allowAdvanced, allowNewSite, allowEdit, track } from './limits.js';
+import { allowAiCall, allowPhoto, allowAdvanced, allowNewSite, allowEdit, allowVoice, track } from './limits.js';
 import { makeDesign } from './design.js';
 import { generateSiteImages, generateImage, fallbackPrompts } from './images.js';
 import { callClaudeRaw, claudeEnabled } from './claude.js';
 import { createArtDirection, generateSitePage, editSite } from './generate.js';
+import { designMemory, recordDesign, markOutcome } from './memory.js';
+import { transcribe } from './voice.js';
+import { billingEnabled, trialEndsAt, accessState, payLink, cancelSubscription } from './billing.js';
+import { domainsEnabled, normalizeDomain, connectDomain } from './domains.js';
+import { t, LANGS, WELCOME, LANG_BUTTONS } from './i18n.js';
 import { formatPhone } from './render.js';
 import { isDisallowedText } from './moderation.js';
 import { hashPhone, log } from './log.js';
 
 const ROOT = config.rootDomain;
 const MAX_PHOTOS = config.limits.maxPhotos;
+const MAX_VIDEOS = config.limits.maxVideos;
 const RESTART = new Set(['restart', 'reset', 'start over', 'start again']);
 const DELETE = new Set(['delete', 'delete my site', 'delete site', 'delete website', 'delete my website']);
 const CHAT = new Set(['hi', 'hii', 'hello', 'hey', 'menu', 'help', 'ok', 'okay', 'thanks', 'thank you', 'namaste', 'sat sri akal', 'start']);
+const PAY = new Set(['pay', 'subscribe', 'activate', 'reactivate', 'upgrade', 'buy', 'plan']);
+const CANCEL = new Set(['cancel', 'cancel plan', 'cancel my plan', 'cancel subscription', 'cancel my subscription', 'unsubscribe']);
+const LANG_WORDS = { english: 'en', hindi: 'hi', 'हिंदी': 'hi', punjabi: 'pa', 'ਪੰਜਾਬੀ': 'pa' };
 const HISTORY = 5;
-const DONE = new Set(['done', 'photos_done', 'skip', 'skip_photos', 'finish']);
+const DONE = new Set(['done', 'photos_done', 'skip', 'skip_photos', 'finish', 'no_photos']);
 const DROP_SESSION = Symbol('drop');
-const photoTimers = new Map();
+const mediaTimers = new Map();
 
 export async function handleMessage(msg) {
   const started = Date.now();
@@ -44,7 +53,7 @@ export async function handleMessage(msg) {
   if (cmd === 'model check' && config.adminNumbers.includes(String(msg.from))) {
     result = await modelCheck(s);
   } else if (RESTART.has(cmd)) {
-    clearPhotoTimer(s._id);
+    clearMediaTimer(s._id);
     s.state = 'NEW';
     s.draft = {};
     s.editing = null;
@@ -93,6 +102,93 @@ async function modelCheck(s) {
   }
 }
 
+const lang = (s) => s.lang || 'en';
+
+async function hearVoice(s, msg) {
+  if (!(await allowVoice(s._id, config.limits.voicePerDay))) {
+    await sendText(s._id, "You've sent a lot of voice notes today. Please type instead.");
+    return '';
+  }
+  await sendText(s._id, t(lang(s), 'listening'));
+  try {
+    const { buffer, mimeType } = await downloadMedia(msg.mediaId);
+    return await transcribe(buffer, mimeType, lang(s));
+  } catch (err) {
+    log.warn('voice download failed', { user: hashPhone(s._id), error: err.message });
+    return '';
+  }
+}
+
+async function answerOf(s, msg, text) {
+  if (msg.type === 'audio' && msg.mediaId) return hearVoice(s, msg);
+  return msg.type === 'text' || msg.type === 'button' ? text : '';
+}
+
+function askMode(s) {
+  s.state = 'ASK_MODE';
+  return sendButtons(s._id, t(lang(s), 'mode'), [
+    { id: 'mode_text', title: t(lang(s), 'mode_text') },
+    { id: 'mode_voice', title: t(lang(s), 'mode_voice') },
+  ]);
+}
+
+function askName(s) {
+  s.state = 'ASK_NAME';
+  s.draft = { answers: {} };
+  return sendText(s._id, t(lang(s), 'ask_name'));
+}
+
+function askVoice(s) {
+  s.state = 'ASK_VOICE';
+  s.draft = {};
+  return sendButtons(s._id, t(lang(s), 'ask_voice'), [{ id: 'mode_text', title: t(lang(s), 'mode_text') }]);
+}
+
+async function understand(s, words, viaVoice) {
+  if (!(await allowAiCall(s._id, config.limits.aiCallsPerDay))) {
+    return sendText(s._id, "You've reached today's limit for changes. Please try again tomorrow.");
+  }
+  const info = await extractBusiness(words, s.name, lang(s));
+  if (!info.allowed) {
+    track(s._id, 'blocked', { reason: info.reason });
+    s.state = 'NEW';
+    return sendText(s._id, "Sorry, this service can't create websites for that type of business.");
+  }
+  track(s._id, 'about_received', { voice: viaVoice });
+  const { allowed, reason, slugHint, imagePrompts, ...fields } = info;
+  s.draft = { ...fields, slugHint, imagePrompts, ownerWords: words, viaVoice, photos: [], videos: [] };
+  s.state = 'CONFIRM';
+  const l = lang(s);
+  const location = [fields.area, fields.city].filter(Boolean).join(', ') || t(l, 'none');
+  return sendButtons(
+    s._id,
+    t(l, 'confirm', {
+      name: fields.businessName,
+      location,
+      services: fields.services?.length ? fields.services.join(', ') : t(l, 'none'),
+    }),
+    [
+      { id: 'proceed', title: t(l, 'proceed') },
+      viaVoice ? { id: 'redo_voice', title: t(l, 'redo_voice') } : { id: 'redo_text', title: t(l, 'redo_text') },
+    ]
+  );
+}
+
+function askStyle(s) {
+  s.state = 'ASK_STYLE';
+  return sendButtons(s._id, `*${s.draft.businessName}* ✨\n\n${t(lang(s), 'style')}`, [
+    { id: 'style_basic', title: 'Basic ⚡' },
+    { id: 'style_pro', title: 'Advanced 🎨' },
+  ]);
+}
+
+function askPhotos(s) {
+  s.state = 'ASK_PHOTOS';
+  return sendButtons(s._id, t(lang(s), 'photos', { photos: MAX_PHOTOS, videos: MAX_VIDEOS }), [
+    { id: 'no_photos', title: t(lang(s), 'no_photos') },
+  ]);
+}
+
 const HANDLERS = {
   async NEW(s) {
     const existing = await ownedSite(s);
@@ -101,113 +197,139 @@ const HANDLERS = {
       s.slug = existing.slug;
       s.editing = null;
       s.draft = {};
-      return liveMenu(s);
+      return liveMenu(s, existing);
     }
-    s.state = 'ASK_ABOUT';
+    s.state = 'ASK_LANG';
     s.startedAt = Date.now();
     s.draft = {};
     s.editing = null;
     track(s._id, 'conversation_started');
-    await sendText(
-      s._id,
-      `Hi ${s.name || 'there'} 👋 I'll build a website for your business in about 60 seconds.\n\n` +
-        `*Step 1 of 4*\nTell me about your business in one message: its name, what you sell, and your city.\n\n` +
-        `_Example: "Sweet Crumbs, custom birthday cakes and cupcakes, home bakery in Ludhiana"_`
-    );
+    await sendButtons(s._id, WELCOME.replace('{name}', s.name || 'there'), LANG_BUTTONS);
   },
 
-  async ASK_ABOUT(s, msg, text) {
-    if (msg.type === 'audio') {
-      return sendText(s._id, "I can't listen to voice notes yet. Please type your business name, what you sell, and your city.");
+  async ASK_LANG(s, msg, text, cmd) {
+    const picked = cmd.startsWith('lang_') ? cmd.slice(5) : LANG_WORDS[cmd];
+    if (!LANGS.includes(picked)) {
+      return sendButtons(s._id, WELCOME.replace('{name}', s.name || 'there'), LANG_BUTTONS);
     }
-    if (msg.type === 'image') {
-      return sendText(s._id, 'First, tell me about your business in one message. You can send photos in the next step.');
-    }
-    if (text.length < 8) {
-      return sendText(s._id, 'Type a sentence with your business name, what you sell, and your city.');
-    }
-    if (!(await allowAiCall(s._id, config.limits.aiCallsPerDay))) {
-      return sendText(s._id, "You've reached today's limit for changes. Please try again tomorrow.");
-    }
+    s.lang = picked;
+    return askMode(s);
+  },
 
-    const info = await extractBusiness(text, s.name);
-    if (!info.allowed) {
-      track(s._id, 'blocked', { reason: info.reason });
-      if (s.editing) return backToLive(s, "Sorry, this service can't publish that. Your website is unchanged.");
-      s.state = 'NEW';
-      return sendText(s._id, "Sorry, this service can't create websites for that type of business.");
+  async ASK_MODE(s, msg, text, cmd) {
+    if (msg.type === 'audio' && msg.mediaId) {
+      s.state = 'ASK_VOICE';
+      return HANDLERS.ASK_VOICE(s, msg, text, cmd);
     }
-    track(s._id, 'about_received');
+    if (cmd === 'mode_voice' || /voice|वॉइस|ਵੌਇਸ/.test(cmd)) return askVoice(s);
+    if (cmd === 'mode_text' || /type|text|लिख|ਲਿਖ/.test(cmd)) return askName(s);
+    return askMode(s);
+  },
 
-    const { allowed, reason, slugHint, imagePrompts, ...fields } = info;
-    if (s.editing === 'about') return applyEdit(s, fields, 'Details updated');
+  async ASK_VOICE(s, msg, text, cmd) {
+    if (cmd === 'mode_text') return askName(s);
+    if (msg.type === 'audio' && msg.mediaId) {
+      const words = await hearVoice(s, msg);
+      if (!words) {
+        return sendButtons(s._id, t(lang(s), 'voice_failed'), [{ id: 'mode_text', title: t(lang(s), 'mode_text') }]);
+      }
+      return understand(s, words, true);
+    }
+    if (msg.type === 'text' && text.length >= 15) return understand(s, text, false);
+    return sendButtons(s._id, t(lang(s), 'voice_only'), [{ id: 'mode_text', title: t(lang(s), 'mode_text') }]);
+  },
 
-    s.draft = { ...fields, slugHint, imagePrompts, photos: [] };
-    s.state = 'ASK_STYLE';
-    await sendButtons(
-      s._id,
-      `*${info.businessName}* ✨\n\n*Step 2 of 4*\nWhich website do you want?\n\n` +
-        `⚡ *Basic*: clean and simple, ready in seconds.\n\n` +
-        `🎨 *Advanced*: a modern one-page website with a design made just for your business, plus AI-generated pictures.`,
-      [
-        { id: 'style_basic', title: 'Basic ⚡' },
-        { id: 'style_pro', title: 'Advanced 🎨' },
-      ]
-    );
+  async ASK_NAME(s, msg, text) {
+    const answer = await answerOf(s, msg, text);
+    if (answer.length < 2) return sendText(s._id, t(lang(s), 'ask_name'));
+    s.draft.answers = { ...(s.draft.answers || {}), name: answer.slice(0, 200) };
+    s.state = 'ASK_LOCATION';
+    return sendText(s._id, t(lang(s), 'ask_location'));
+  },
+
+  async ASK_LOCATION(s, msg, text) {
+    const answer = await answerOf(s, msg, text);
+    if (answer.length < 2) return sendText(s._id, t(lang(s), 'ask_location'));
+    s.draft.answers.location = answer.slice(0, 300);
+    s.state = 'ASK_SERVICES';
+    return sendText(s._id, t(lang(s), 'ask_services'));
+  },
+
+  async ASK_SERVICES(s, msg, text) {
+    const answer = await answerOf(s, msg, text);
+    if (answer.length < 3) return sendText(s._id, t(lang(s), 'ask_services'));
+    const a = { ...s.draft.answers, services: answer.slice(0, 1000) };
+    const words = `Business name: ${a.name}\nLocation: ${a.location}\nServices or products: ${a.services}`;
+    return understand(s, words, false);
+  },
+
+  async CONFIRM(s, msg, text, cmd) {
+    if (cmd === 'proceed' || /^(yes|ok|okay|proceed|correct|haan|ha|ਹਾਂ|हाँ|हां)$/.test(cmd)) {
+      track(s._id, 'confirmed', { voice: s.draft.viaVoice });
+      return askStyle(s);
+    }
+    if (cmd === 'redo_voice') return askVoice(s);
+    if (cmd === 'redo_text' || cmd === 'mode_text') return askName(s);
+    const correction = await answerOf(s, msg, text);
+    if (correction.length >= 2) {
+      return understand(s, `${s.draft.ownerWords}\n\nCorrection from the owner: ${correction}`, s.draft.viaVoice);
+    }
+    return sendButtons(s._id, t(lang(s), 'too_short'), [{ id: 'proceed', title: t(lang(s), 'proceed') }]);
   },
 
   async ASK_STYLE(s, msg, text, cmd) {
     const advanced = cmd === 'style_pro' || /^(advanced|pro|good|ui)/.test(cmd);
     const basic = cmd === 'style_basic' || /^(basic|simple|60)/.test(cmd);
-    if (!advanced && !basic) {
-      return sendButtons(s._id, 'Please choose a style for your website.', [
-        { id: 'style_basic', title: 'Basic ⚡' },
-        { id: 'style_pro', title: 'Advanced 🎨' },
-      ]);
-    }
+    if (!advanced && !basic) return askStyle(s);
     s.draft.style = advanced ? 'advanced' : 'basic';
-    s.state = 'ASK_PHOTOS';
-    await sendButtons(
-      s._id,
-      `*Step 3 of 4*\nSend up to ${MAX_PHOTOS} photos of your products, work or shop. ` +
-        `Select them all at once, then tap Done.`,
-      [{ id: 'skip_photos', title: 'Skip photos' }]
-    );
+    return askPhotos(s);
   },
 
   async ASK_PHOTOS(s, msg, text, cmd) {
     s.draft.photos ??= [];
+    s.draft.videos ??= [];
 
-    if (msg.type === 'image' && msg.mediaId) {
-      if (s.draft.photos.length >= MAX_PHOTOS) return schedulePhotoAck(s._id);
+    if ((msg.type === 'image' || msg.type === 'video') && msg.mediaId) {
+      const isVideo = msg.type === 'video';
+      const list = isVideo ? s.draft.videos : s.draft.photos;
+      if (list.length >= (isVideo ? MAX_VIDEOS : MAX_PHOTOS)) return scheduleMediaAck(s._id);
       if (!(await allowPhoto(s._id, config.limits.photosPerHour))) {
-        return sendText(s._id, "That's a lot of photos for one hour. Tap Done to continue with the ones I have.");
+        return sendText(s._id, "That's a lot of uploads for one hour. Tap Done to continue with the ones I have.");
       }
       try {
-        const { buffer } = await downloadMedia(msg.mediaId);
-        s.draft.photos.push(await processAndUpload(buffer, s._id));
+        const { buffer, mimeType } = await downloadMedia(msg.mediaId);
+        list.push(isVideo ? await uploadVideo(buffer, mimeType, s._id) : await processAndUpload(buffer, s._id));
       } catch (err) {
-        log.error('photo failed', err, { user: hashPhone(s._id) });
-        await sendText(s._id, "One photo couldn't be read. Please send it again as a photo.");
+        log.error('media failed', err, { user: hashPhone(s._id), type: msg.type });
+        await sendText(
+          s._id,
+          isVideo
+            ? "That video couldn't be saved. Please send an MP4 video under 16 MB."
+            : "One photo couldn't be read. Please send it again as a photo."
+        );
       }
-      return schedulePhotoAck(s._id);
+      return scheduleMediaAck(s._id);
     }
 
     if (DONE.has(cmd)) {
-      clearPhotoTimer(s._id);
-      track(s._id, 'photos_done', { count: s.draft.photos.length });
+      clearMediaTimer(s._id);
+      track(s._id, 'photos_done', { photos: s.draft.photos.length, videos: s.draft.videos.length });
       if (s.editing === 'photos') {
-        if (!s.draft.photos.length) return backToLive(s, 'Photos unchanged.');
         const site = await ownedSite(s);
-        const result = await applyEdit(s, { photos: s.draft.photos }, 'Photos updated');
-        deletePhotos(site?.photos).catch((err) => log.warn('old photo cleanup failed', { error: err.message }));
+        const update = {};
+        if (s.draft.photos.length) update.photos = s.draft.photos;
+        if (s.draft.videos.length) update.videos = s.draft.videos;
+        if (!Object.keys(update).length) return backToLive(s, 'Photos unchanged.');
+        const result = await applyEdit(s, update, 'Photos updated');
+        if (update.photos) deletePhotos(site?.photos).catch((err) => log.warn('old photo cleanup failed', { error: err.message }));
+        if (update.videos) deleteVideos(site?.videos).catch((err) => log.warn('old video cleanup failed', { error: err.message }));
         return result;
       }
       return askSlug(s);
     }
 
-    await sendButtons(s._id, 'Send your photos, or tap Done when finished.', [
-      { id: 'photos_done', title: 'Done ✅' },
+    await sendButtons(s._id, t(lang(s), 'photos', { photos: MAX_PHOTOS, videos: MAX_VIDEOS }), [
+      { id: 'photos_done', title: t(lang(s), 'done') },
     ]);
   },
 
@@ -239,8 +361,8 @@ const HANDLERS = {
       s.draft.requestedDomain = domain;
       await sendText(
         s._id,
-        `Connecting your own domain (${domain}) is available as an upgrade. ` +
-          `Your site will go live at ${slug}.${ROOT} now, and you can move it later.`
+        `Great, you can connect ${domain} after your site is live: just send *connect domain ${domain}*. ` +
+          `For now your site goes live at ${slug}.${ROOT}.`
       );
     }
     return claimSlug(s, slug);
@@ -254,11 +376,26 @@ const HANDLERS = {
       return HANDLERS.NEW(s);
     }
     s.slug = site.slug;
+    const state = accessState(site);
+    const active = state === 'live' || state === 'trial';
+
+    if (PAY.has(cmd)) return sendPayLink(s, site);
+    if (CANCEL.has(cmd)) return askCancel(s, site);
+
+    const emailMatch = text.match(/^e-?mail\s*[:\-]?\s*([^\s@]+@[^\s@]+\.[a-z]{2,})$/i);
+    if (emailMatch) return applyEdit(s, { notifyEmail: emailMatch[1].toLowerCase() }, `📧 Enquiry alerts will also go to ${emailMatch[1]}`);
+
+    if (cmd === 'leads' || cmd === 'enquiries') return showLeads(s, site);
+
+    const domainMatch = text.match(/^(?:connect\s+)?(?:my\s+)?domain\s*[:\-]?\s*(\S+)$/i);
+    if (domainMatch) return handleDomain(s, site, domainMatch[1]);
+
+    if (!active) return liveMenu(s, site);
 
     if (cmd === 'edit_about' && site.page?.body) {
       return sendText(
         s._id,
-        'Just type what you want to change, in your own words. For example:\n' +
+        'Just type or send a voice note with what you want to change. For example:\n' +
           '• _Make the colours dark green and gold_\n' +
           '• _Add home loans to our services_\n' +
           '• _Make the headline shorter and bolder_\n' +
@@ -266,27 +403,26 @@ const HANDLERS = {
       );
     }
     if (cmd === 'edit_about') {
-      s.state = 'ASK_ABOUT';
-      s.editing = 'about';
-      return sendText(s._id, 'Send the new description of your business in one message: name, what you sell, and your city.');
+      return sendText(s._id, 'Type or send a voice note with what you want to change, for example: _add home delivery to our services_.');
     }
     if (cmd === 'edit_photos') {
       s.state = 'ASK_PHOTOS';
       s.editing = 'photos';
-      s.draft = { photos: [] };
+      s.draft = { photos: [], videos: [] };
       return sendButtons(
         s._id,
-        `Send up to ${MAX_PHOTOS} new photos. They'll replace the current ones. Tap Done when finished.`,
+        `Send up to ${MAX_PHOTOS} new photos or ${MAX_VIDEOS} videos. They'll replace the current ones. Tap Done when finished.`,
         [{ id: 'photos_done', title: 'Done ✅' }]
       );
     }
-    if (cmd === 'get_link') return sendText(s._id, siteUrl(site.slug));
+    if (cmd === 'get_link') return sendText(s._id, site.customDomain ? `https://${site.customDomain}` : siteUrl(site.slug));
 
     if (cmd === 'new design') {
       if (!(await allowAdvanced(s._id, config.limits.advancedPerDay))) {
         return sendText(s._id, "You've reached today's limit for new designs. Please try again tomorrow.");
       }
       await sendText(s._id, '🎨 Creating a completely new design with new pictures. This takes 3 to 5 minutes...');
+      markOutcome(site.slug, 'rejected').catch(() => {});
       const made = await designSite(site, s._id);
       if (!made.page) {
         return sendText(s._id, "⚠️ The designer AI didn't answer this time, so your site is unchanged. Please try again in a minute.");
@@ -312,11 +448,50 @@ const HANDLERS = {
       return applyEdit(s, { phone }, `Contact number changed to ${formatPhone(phone)}`);
     }
 
+    if (msg.type === 'audio' && msg.mediaId) {
+      const heard = await hearVoice(s, msg);
+      if (!heard) return sendText(s._id, t(lang(s), 'voice_failed'));
+      s.state = 'CONFIRM_EDIT';
+      s.draft = { request: heard };
+      return sendButtons(s._id, `🎧 I heard:\n\n_“${heard.slice(0, 700)}”_\n\nShould I make this change?`, [
+        { id: 'apply_edit', title: 'Yes, change it ✅' },
+        { id: 'cancel_edit', title: 'No' },
+      ]);
+    }
+
     if (msg.type === 'text' && !CHAT.has(cmd) && text.length >= 6 && /\s/.test(text)) {
       return chatEdit(s, site, text);
     }
 
-    return liveMenu(s);
+    return liveMenu(s, site);
+  },
+
+  async CONFIRM_EDIT(s, msg, text, cmd) {
+    const site = await ownedSite(s);
+    const request = s.draft?.request;
+    s.state = 'LIVE';
+    s.draft = {};
+    if (!site) return HANDLERS.NEW(s);
+    if (cmd === 'apply_edit' && request) return chatEdit(s, site, request);
+    if (cmd === 'cancel_edit') return sendText(s._id, 'OK, nothing changed. Type or send a voice note when you are ready.');
+    return HANDLERS.LIVE(s, msg, text, cmd);
+  },
+
+  async CONFIRM_CANCEL(s, msg, text, cmd) {
+    const site = await ownedSite(s);
+    s.state = site ? 'LIVE' : 'NEW';
+    if (!site) return HANDLERS.NEW(s);
+    if (cmd !== 'confirm_cancel') return sendText(s._id, `Good, your plan continues and ${siteUrl(site.slug)} stays live.`);
+    try {
+      await cancelSubscription(site);
+    } catch (err) {
+      log.error('cancel failed', err, { user: hashPhone(s._id) });
+      return sendText(s._id, "I couldn't cancel right now. Please try again in a minute.");
+    }
+    return sendText(
+      s._id,
+      `Your plan is cancelled and ${siteUrl(site.slug)} is now offline. Your design is saved, so send *pay* anytime to bring it back.`
+    );
   },
 
   async CONFIRM_DELETE(s, msg, text, cmd) {
@@ -327,7 +502,11 @@ const HANDLERS = {
     }
     s.state = site ? 'LIVE' : 'NEW';
     if (!site) return HANDLERS.NEW(s);
-    return sendText(s._id, `Good, your website stays live: ${siteUrl(site.slug)}`);
+    return sendText(s._id, `Good, your website stays: ${siteUrl(site.slug)}`);
+  },
+
+  ASK_ABOUT(s) {
+    return HANDLERS.NEW(s);
   },
 };
 
@@ -343,39 +522,39 @@ function ownedSite(s) {
   return sites.findOne({ ownerPhone: s._id }, { sort: { createdAt: -1 } });
 }
 
-function clearPhotoTimer(phone) {
-  clearTimeout(photoTimers.get(phone));
-  photoTimers.delete(phone);
+function clearMediaTimer(phone) {
+  clearTimeout(mediaTimers.get(phone));
+  mediaTimers.delete(phone);
 }
 
-function schedulePhotoAck(phone) {
-  clearPhotoTimer(phone);
+function scheduleMediaAck(phone) {
+  clearMediaTimer(phone);
   const timer = setTimeout(() => {
-    photoTimers.delete(phone);
+    mediaTimers.delete(phone);
     enqueue(phone, async () => {
       const s = await sessions.findOne({ _id: phone });
       if (s?.state !== 'ASK_PHOTOS') return;
-      const n = s.draft?.photos?.length ?? 0;
-      if (!n) return;
-      const body =
-        n >= MAX_PHOTOS
-          ? `Got ${n} photos, that's the maximum 📸 Tap Done to continue.`
-          : `Got ${n} photo${n === 1 ? '' : 's'} 📸 Send more or tap Done.`;
-      await sendButtons(phone, body, [{ id: 'photos_done', title: 'Done ✅' }]);
+      const p = s.draft?.photos?.length ?? 0;
+      const v = s.draft?.videos?.length ?? 0;
+      if (!p && !v) return;
+      const parts = [p && `${p} photo${p === 1 ? '' : 's'}`, v && `${v} video${v === 1 ? '' : 's'}`].filter(Boolean).join(' and ');
+      const full = p >= MAX_PHOTOS && (v >= MAX_VIDEOS || !v);
+      const body = full ? `Got ${parts}, that's the maximum 📸 Tap Done to continue.` : `Got ${parts} 📸 Send more or tap Done.`;
+      await sendButtons(phone, body, [{ id: 'photos_done', title: t(s.lang, 'done') }]);
     });
   }, 2500);
   timer.unref?.();
-  photoTimers.set(phone, timer);
+  mediaTimers.set(phone, timer);
 }
 
 async function askSlug(s) {
   s.draft.slug = await suggestSlug(s.draft.businessName, s.draft.city, s.draft.slugHint);
   if (!s.draft.slug) {
     s.state = 'ASK_CUSTOM_SLUG';
-    return sendText(s._id, `*Step 4 of 4*\nType a short name for your website address.\n_Example: sweetcrumbs → sweetcrumbs.${ROOT}_`);
+    return sendText(s._id, `Type a short name for your website address.\n_Example: sweetcrumbs → sweetcrumbs.${ROOT}_`);
   }
   s.state = 'ASK_SLUG';
-  await sendButtons(s._id, `*Step 4 of 4*\nYour website address will be:\n\n🌐 *${s.draft.slug}.${ROOT}*`, [
+  await sendButtons(s._id, `Your website address will be:\n\n🌐 *${s.draft.slug}.${ROOT}*`, [
     { id: 'slug_ok', title: 'Use this ✅' },
     { id: 'slug_change', title: 'Pick another ✏️' },
   ]);
@@ -403,6 +582,10 @@ async function offerAlternative(s, slug) {
   );
 }
 
+function onTrial(phone) {
+  return billingEnabled() && !config.adminNumbers.includes(String(phone));
+}
+
 async function publish(s) {
   if (!(await allowNewSite(s._id, config.limits.sitesPerDay))) {
     return sendText(s._id, "You've created the maximum number of websites for today. Please try again tomorrow.");
@@ -423,21 +606,26 @@ async function publish(s) {
       designFailed = !made.page;
     }
   }
+  const trial = onTrial(s._id);
   const site = {
     slug: d.slug,
     ownerPhone: s._id,
     phone: s._id,
-    status: 'active',
-    plan: 'free',
+    status: trial ? 'trial' : 'active',
+    plan: trial ? 'trial' : 'free',
+    ...(trial ? { trialEndsAt: trialEndsAt(now) } : {}),
     businessName: d.businessName,
     category: d.category,
     tagline: d.tagline,
     description: d.description,
     city: d.city,
+    area: d.area || '',
     services: d.services ?? [],
     theme: d.theme,
-    language: d.language,
+    language: s.lang || d.language,
+    ownerWords: d.ownerWords || '',
     photos: d.photos ?? [],
+    videos: d.videos ?? [],
     style,
     ...extras,
     createdAt: now,
@@ -454,7 +642,7 @@ async function publish(s) {
 
   invalidate(d.slug);
   const secs = s.startedAt ? Math.round((Date.now() - s.startedAt) / 1000) : null;
-  track(s._id, 'published', { seconds: secs });
+  track(s._id, 'published', { seconds: secs, trial });
   s.state = 'LIVE';
   s.slug = d.slug;
   s.draft = {};
@@ -463,22 +651,25 @@ async function publish(s) {
   await sendText(
     s._id,
     `🎉 Your website is live${secs ? ` (built in ${secs} seconds)` : ''}!\n\n${siteUrl(d.slug)}\n\n` +
-      `Put it in your WhatsApp status, Instagram bio and Google Maps listing.\n\n` +
-      `ℹ️ Your number ${formatPhone(s._id)} is shown on the site for the WhatsApp and Call buttons. ` +
-      `To show a different number, send: *number 9876543210*\n` +
+      (trial
+        ? `🎁 It's *free for ${config.billing.trialHours} hours*. To keep it online after that${config.billing.priceLabel ? ` (${config.billing.priceLabel})` : ''}, subscribe here (card, Apple Pay or Google Pay):\n${payLink(d.slug)}\n\n`
+        : '') +
+      `ℹ️ Your number ${formatPhone(s._id)} is shown for the WhatsApp and Call buttons. To show a different number, send: *number 9876543210*\n` +
       `📍 Share your location pin here to add a map.\n` +
+      `📩 Enquiries from your website arrive right here on WhatsApp.\n` +
       (style === 'advanced'
         ? designFailed
           ? `⚠️ The designer AI was busy, so I used a simpler layout. Send *new design* in a minute to try again.\n`
           : `🎨 Not happy with the look? Send *new design* for a fresh one.\n`
         : '') +
-      `\n✏️ To change anything, just type it here in your own words, for example _"make the colours dark blue"_. Send *undo* to go back.`
+      `\n✏️ To change anything, just type it or send a voice note, for example _"make the colours dark blue"_. Send *undo* to go back.`
   );
 }
 
 async function designSite(site, ownerPhone) {
   const design = makeDesign(site, String(Date.now()));
-  const brief = await createArtDirection(site);
+  const memory = await designMemory(site.category).catch(() => null);
+  const brief = await createArtDirection(site, memory);
   const prompts = brief?.imagePrompts?.length ? brief.imagePrompts : site.imagePrompts?.length ? site.imagePrompts : fallbackPrompts(site);
   const [aiImages, page] = await Promise.all([
     generateSiteImages(prompts, ownerPhone),
@@ -487,6 +678,7 @@ async function designSite(site, ownerPhone) {
       return null;
     }),
   ]);
+  if (page) recordDesign(site, brief, page).catch((err) => log.warn('design memory failed', { error: err.message }));
   return { design, aiImages, page };
 }
 
@@ -556,7 +748,7 @@ async function applyEdit(s, fields, label) {
   );
   invalidate(s.slug, site?.customDomain);
   track(s._id, 'edited', { fields: Object.keys(fields) });
-  return backToLive(s, `✅ ${label}\n\n${siteUrl(s.slug)}`);
+  return backToLive(s, `✅ ${label}\n\n${site?.customDomain ? `https://${site.customDomain}` : siteUrl(s.slug)}`);
 }
 
 async function backToLive(s, message) {
@@ -566,8 +758,63 @@ async function backToLive(s, message) {
   await sendText(s._id, message);
 }
 
+function sendPayLink(s, site) {
+  if (!billingEnabled()) return sendText(s._id, `Your website is live and free for now: ${siteUrl(site.slug)}`);
+  if (site.plan === 'paid' && accessState(site) === 'live') {
+    return sendText(s._id, `✅ Your plan is active. To cancel, send *cancel plan*.`);
+  }
+  return sendText(
+    s._id,
+    `💳 Subscribe to keep ${siteUrl(site.slug)} online${config.billing.priceLabel ? ` (${config.billing.priceLabel})` : ''}. Pay by card, Apple Pay or Google Pay:\n${payLink(site.slug)}`
+  );
+}
+
+function askCancel(s, site) {
+  if (site.plan !== 'paid' || accessState(site) !== 'live') {
+    return sendText(s._id, "You don't have an active plan to cancel.");
+  }
+  s.state = 'CONFIRM_CANCEL';
+  return sendButtons(
+    s._id,
+    `Cancelling stops your plan and takes ${siteUrl(site.slug)} offline right away. Are you sure?`,
+    [
+      { id: 'confirm_cancel', title: 'Yes, cancel' },
+      { id: 'keep_plan', title: 'No, keep it' },
+    ]
+  );
+}
+
+async function handleDomain(s, site, input) {
+  const domain = normalizeDomain(input);
+  if (!domain) return sendText(s._id, 'That domain looks wrong. Send it like: *connect domain mybusiness.com*');
+  if (billingEnabled() && site.plan !== 'paid') {
+    return sendText(s._id, `🌐 Your own domain is part of the paid plan. Subscribe first, then send *connect domain ${domain}* again:\n${payLink(site.slug)}`);
+  }
+  if (!domainsEnabled()) {
+    await sites.updateOne({ _id: site._id }, { $set: { requestedDomain: domain } });
+    return sendText(s._id, `Thanks! I've noted ${domain}. Our team will connect it for you and message you here.`);
+  }
+  try {
+    return sendText(s._id, await connectDomain(site, domain));
+  } catch (err) {
+    log.error('domain connect failed', err, { domain });
+    return sendText(s._id, `I couldn't add ${domain} right now. Please check the spelling and try again in a few minutes.`);
+  }
+}
+
+async function showLeads(s, site) {
+  const list = await leads.find({ slug: site.slug }).sort({ at: -1 }).limit(5).toArray();
+  if (!list.length) return sendText(s._id, 'No enquiries yet. They will arrive here as soon as someone fills in the form on your website.');
+  return sendText(
+    s._id,
+    `📩 *Latest enquiries*\n\n${list
+      .map((l) => `👤 ${l.name} · 📞 ${l.phone}${l.message ? `\n💬 ${l.message.slice(0, 200)}` : ''}`)
+      .join('\n\n')}`
+  );
+}
+
 async function askDelete(s) {
-  clearPhotoTimer(s._id);
+  clearMediaTimer(s._id);
   const site = await ownedSite(s);
   if (!site) {
     return sendText(s._id, "You don't have a website yet. Send *hi* to make one.");
@@ -587,21 +834,39 @@ async function askDelete(s) {
 }
 
 async function deleteSite(s, site) {
+  if (site.plan === 'paid' && site.billing?.subscriptionId) {
+    await cancelSubscription(site).catch((err) => log.warn('subscription cancel failed', { error: err.message }));
+  }
   await deletePhotos(site.photos).catch((err) => log.warn('photo delete failed', { error: err.message }));
+  await deleteVideos(site.videos).catch((err) => log.warn('video delete failed', { error: err.message }));
   await sites.deleteOne({ _id: site._id });
   invalidate(site.slug, site.customDomain);
   track(s._id, 'deleted');
   await sendText(s._id, 'Your website, photos and details have been deleted. Message me anytime to make a new one.');
 }
 
-function liveMenu(s) {
+function liveMenu(s, site) {
+  const state = accessState(site);
+  const url = site?.customDomain ? `https://${site.customDomain}` : siteUrl(s.slug);
+  if (state === 'expired' || state === 'cancelled') {
+    return sendText(
+      s._id,
+      `⏸ Your website ${url} is offline because ${state === 'expired' ? 'the free trial ended' : 'the plan was cancelled'}.\n\n` +
+        (billingEnabled() ? `Bring it back instantly, pay by card, Apple Pay or Google Pay:\n${payLink(s.slug)}` : 'Message us to reactivate it.')
+    );
+  }
+  const trialNote =
+    state === 'trial' && site.trialEndsAt
+      ? `🎁 Free trial: about ${Math.max(1, Math.round((new Date(site.trialEndsAt) - Date.now()) / 3600000))} hours left. Send *pay* to keep it online.\n\n`
+      : '';
   return sendButtons(
     s._id,
-    `Your website: ${siteUrl(s.slug)}\n\nTo change anything, just type it in your own words, for example _"make the colours dark blue"_ or _"add a section about home delivery"_.\n\n` +
-      `Other commands: *new design*, *undo*, *number 98xxxxxxxx*, *delete my site*`,
+    `Your website: ${url}\n\n${trialNote}To change anything, type it or send a voice note, for example _"make the colours dark blue"_.\n\n` +
+      `More: *new design*, *undo*, *leads*, *connect domain mybusiness.com*, *email you@example.com*, *number 98xxxxxxxx*, *pay*, *cancel plan*, *delete my site*`,
     [
-    { id: 'edit_about', title: 'Edit details' },
-    { id: 'edit_photos', title: 'Change photos' },
-    { id: 'get_link', title: 'Get my link' },
-  ]);
+      { id: 'edit_about', title: 'Edit details' },
+      { id: 'edit_photos', title: 'Change photos' },
+      { id: 'get_link', title: 'Get my link' },
+    ]
+  );
 }

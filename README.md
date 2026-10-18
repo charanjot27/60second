@@ -26,10 +26,13 @@ and cached for 60 seconds, so publishing is a single insert and is instant.
 
 | Step | Bot asks | Owner sends |
 |---|---|---|
-| 1 | Name, what you sell, city, in one message | "Sweet Crumbs, birthday cakes, home bakery in Ludhiana" |
-| 2 | Basic or Advanced website | a tap |
-| 3 | Up to 6 photos, then Done (or Skip) | photos |
-| 4 | Suggested address: Use this / Pick another | a tap, or a typed name |
+| 1 | Language: English, हिंदी or ਪੰਜਾਬੀ | a tap |
+| 2 | Type it or send a voice note | a tap |
+| 3 | Business name, location, services (typed one by one, or in one voice note) | text or a voice note |
+| 4 | "Here's what I understood" with Proceed: nothing expensive runs until the owner confirms | a tap, or a typed correction |
+| 5 | Basic or Advanced website | a tap |
+| 6 | Up to 6 photos or 2 videos, then Done (or No photos for AI pictures) | photos, videos |
+| 7 | Suggested address: Use this / Pick another | a tap, or a typed name |
 | ✅ | The live link and how many seconds it took | |
 
 An Advanced site is made in three stages. Opus writes an art direction for that one business
@@ -41,9 +44,18 @@ After launch the owner changes anything by typing it in plain words, for example
 "make the colours dark green" or "add home loans to our services". Opus edits the page,
 the facts or the pictures, and the previous version is kept for `undo`.
 
+Every site starts as a 24-hour free trial when Stripe is configured. The bot sends a payment link
+(card, Apple Pay and Google Pay). Unpaid trials and cancelled plans
+go offline immediately, at render time and in a 5-minute background sweep.
+
 | Command | What it does |
 |---|---|
-| any sentence | Applies that change to the site |
+| any sentence or voice note | Applies that change to the site (voice notes are read back for confirmation first) |
+| `pay` | Sends the payment link |
+| `cancel plan` | Cancels the subscription and takes the site offline at once |
+| `connect domain mybusiness.com` | Adds the owner's own domain and sends the DNS records for GoDaddy and others |
+| `leads` | Shows the latest enquiries from the website form |
+| `email you@example.com` | Also sends enquiry alerts by email |
 | `new design` | A completely new design and pictures (also upgrades a Basic site) |
 | `undo` | Restores the version before the last change (up to 5 back) |
 
@@ -75,6 +87,15 @@ src/
 ├── images.js      AI picture generation
 ├── claude.js      Anthropic client
 ├── gemini.js      Gemini client (fallback designer)
+├── i18n.js        Onboarding text in English, Hindi and Punjabi
+├── voice.js       Voice-note transcription (Cloudflare Whisper, Gemini backup)
+├── billing.js     Trials, Stripe Checkout, webhooks, cancellations, expiry sweep
+├── memory.js      Design memory: avoids repeated fonts and colours, learns from paid sites
+├── leads.js       Enquiry form and Call-tap alerts to the owner
+├── notify.js      WhatsApp (text or template) and email alerts
+├── domains.js     Owners' own domains through the Render API
+├── extras.js      Enquiry form and videos added to every site
+├── admin.js       Admin dashboard and CSV export
 └── log.js         Structured JSON logs
 test/
 └── unit.test.js
@@ -118,7 +139,13 @@ test/
 | `OPENAI_API_KEY`, `OPENAI_IMAGE_MODEL` | Optional, best-quality AI pictures |
 | `GEMINI_IMAGE_MODEL` | Gemini picture model, used when the Gemini key allows it |
 | `CF_ACCOUNT_ID`, `CF_AI_TOKEN`, `CF_IMAGE_MODEL` | Optional Cloudflare Workers AI pictures |
-| `ADMIN_NUMBERS` | Numbers that skip limits and may send `model check` |
+| `ADMIN_NUMBERS` | Numbers that skip limits and trials, and may send `model check` |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID` | Paid plans; webhook at `https://ROOT_DOMAIN/stripe/webhook` |
+| `TRIAL_HOURS`, `PRICE_LABEL` | Free trial length and the price shown in chat |
+| `RENDER_API_KEY` | Connecting owners' own domains |
+| `WA_LEAD_TEMPLATE`, `WA_ALERT_TEMPLATE` | Approved templates for alerts after the 24-hour window |
+| `RESEND_API_KEY`, `ALERT_EMAIL_FROM` | Email copies of enquiry alerts |
+| `ADMIN_PASSWORD` | Admin dashboard at `/admin` |
 | `LIMIT_*` | Per-number daily limits |
 | `NODE_ENV`, `PORT` | Server |
 

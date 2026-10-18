@@ -15,16 +15,18 @@ Reply with ONE JSON object and nothing else, using exactly these keys:
   "reason": "",
   "businessName": "the business name as the owner wrote it, properly capitalised",
   "category": "2-3 word business type, e.g. Home Bakery, Tailor, Unisex Salon",
-  "city": "city or area if mentioned, else empty string",
+  "city": "the city if mentioned, else empty string",
+  "area": "the locality, area or market within the city if mentioned, else empty string",
   "tagline": "one warm, specific line under 60 characters",
-  "description": "2-3 sentences (under 320 characters) about the business, written for its customers, no invented facts such as years, awards or prices",
-  "services": ["3 to 6 short items the business offers, each under 32 characters"],
+  "description": "2-3 sentences (under 320 characters) about the business, written for its customers, using only what the owner said: no invented years, awards, prices, timings or addresses",
+  "services": ["only the services or products the owner actually mentioned, each under 40 characters, at most 10; never add ones they did not mention"],
   "theme": "one of rose, forest, ocean, sunset, slate, plum that suits the business",
   "slugHint": "short lowercase web name from the business name, letters and digits only",
   "imagePrompts": ["3 short English scene descriptions for illustrative photos of this kind of business, no people's faces, no text or logos"],
   "language": "en, hi or pa: the main language the owner wrote in"
 }
-Write the copy in the same language and script the owner used; use simple English if the message mixes languages.
+Write the copy in the language the owner chose (given below the message); if none is given, use the language and script the owner used, or simple English for mixed messages.
+The message may be a voice-note transcript with filler words or small recognition mistakes: understand what the owner meant and correct obvious mistakes in names of places.
 Set "allowed" to false and give a short "reason" if the business involves illegal goods, weapons, drugs, adult or sexual services, gambling or betting, get-rich-quick or investment schemes, loans without checks, fake documents, or impersonates a bank, government body or well-known brand.
 If no business name is given, create a plain descriptive one from what they sell and the city.`;
 
@@ -52,6 +54,7 @@ export function fallbackCopy(text, ownerName = '') {
     businessName,
     category: '',
     city: '',
+    area: '',
     tagline: '',
     description: clean(text, 320),
     services: [],
@@ -66,7 +69,7 @@ export function sanitize(data, rawText, ownerName) {
   const fb = fallbackCopy(rawText, ownerName);
   if (!data || typeof data !== 'object') return fb;
   const services = Array.isArray(data.services)
-    ? [...new Set(data.services.map((s) => clean(s, 32)).filter(Boolean))].slice(0, 6)
+    ? [...new Set(data.services.map((s) => clean(s, 40)).filter(Boolean))].slice(0, 10)
     : [];
   return {
     allowed: data.allowed !== false,
@@ -74,6 +77,7 @@ export function sanitize(data, rawText, ownerName) {
     businessName: clean(data.businessName, 60) || fb.businessName,
     category: clean(data.category, 40),
     city: clean(data.city, 40),
+    area: clean(data.area, 60),
     tagline: clean(data.tagline, 80),
     description: clean(data.description, 400) || fb.description,
     services,
@@ -98,7 +102,10 @@ async function callModel(model, text, timeoutMs) {
   return parseJson(out);
 }
 
-export async function extractBusiness(text, ownerName = '') {
+const LANG_NAMES = { en: 'English', hi: 'Hindi (Devanagari script)', pa: 'Punjabi (Gurmukhi script)' };
+
+export async function extractBusiness(rawText, ownerName = '', lang = '') {
+  const text = lang && LANG_NAMES[lang] ? `${rawText}\n\n[Owner chose language: ${LANG_NAMES[lang]}]` : rawText;
   const key = crypto.createHash('sha256').update(text.trim().toLowerCase()).digest('hex');
   if (cache.has(key)) return cache.get(key);
 
@@ -118,15 +125,16 @@ export async function extractBusiness(text, ownerName = '') {
     const remaining = deadline - Date.now();
     if (remaining < 1000) break;
     try {
-      result = sanitize(await run(remaining), text, ownerName);
+      result = sanitize(await run(remaining), rawText, ownerName);
       break;
     } catch (err) {
       log.warn('ai call failed', { model: name, error: err.message });
     }
   }
-  const final = result || fallbackCopy(text, ownerName);
+  const final = result || fallbackCopy(rawText, ownerName);
+  if (lang && LANG_NAMES[lang]) final.language = lang;
 
-  if (isDisallowedText(text, final.businessName, final.category, final.tagline, final.description)) {
+  if (isDisallowedText(rawText, final.businessName, final.category, final.tagline, final.description)) {
     final.allowed = false;
     final.reason = final.reason || 'this type of business';
   }

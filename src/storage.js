@@ -16,13 +16,13 @@ const s3 = new S3Client({
 
 const SIZES = { lg: 1200, sm: 480 };
 
-async function upload(key, body) {
+async function upload(key, body, contentType = 'image/webp') {
   await s3.send(
     new PutObjectCommand({
       Bucket: config.s3.bucket,
       Key: key,
       Body: body,
-      ContentType: 'image/webp',
+      ContentType: contentType,
       CacheControl: 'public, max-age=31536000, immutable',
     })
   );
@@ -51,11 +51,30 @@ export async function processAndUpload(buffer, ownerPhone) {
   return { key: base, lg: lgUrl, sm: smUrl, w: lg.info.width, h: lg.info.height };
 }
 
+const VIDEO_TYPES = { 'video/mp4': 'mp4', 'video/3gpp': '3gp', 'video/quicktime': 'mov', 'video/webm': 'webm' };
+
+export async function uploadVideo(buffer, mimeType, ownerPhone) {
+  const type = String(mimeType || '').split(';')[0].trim().toLowerCase();
+  const ext = VIDEO_TYPES[type];
+  if (!ext) throw new Error(`Unsupported video type ${type}`);
+  const key = `v/${hashPhone(ownerPhone)}/${crypto.randomBytes(8).toString('hex')}.${ext}`;
+  const url = await upload(key, buffer, type);
+  return { key, url, type, size: buffer.length };
+}
+
+export async function deleteVideos(videos = []) {
+  const keys = videos.filter((v) => v?.key).map((v) => v.key);
+  if (keys.length) await removeKeys(keys);
+}
+
 export async function deletePhotos(photos = []) {
   const keys = photos
     .filter((p) => p?.key)
     .flatMap((p) => [`${p.key}-lg.webp`, `${p.key}-sm.webp`]);
-  if (!keys.length) return;
+  if (keys.length) await removeKeys(keys);
+}
+
+async function removeKeys(keys) {
   await s3.send(
     new DeleteObjectsCommand({
       Bucket: config.s3.bucket,

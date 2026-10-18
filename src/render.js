@@ -1,4 +1,6 @@
 import { config, siteUrl, botLink } from './config.js';
+import { extrasHtml, EXTRAS_CSS } from './extras.js';
+import { t } from './i18n.js';
 
 const THEME_COLORS = {
   rose: { accent: '#be185d', soft: '#fdf1f6', darkAccent: '#f472b6', darkSoft: '#2a1620' },
@@ -18,7 +20,7 @@ const ICONS = {
   call: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z"/></svg>',
 };
 
-export const SITE_SCRIPT = `(()=>{const d=document,b=d.getElementById("bar"),c=d.getElementById("cta");if(b&&c){const v=()=>b.classList.toggle("on",c.getBoundingClientRect().bottom<0);addEventListener("scroll",v,{passive:!0});v()}const l=d.getElementById("lb");if(!l||!l.showModal)return;const m=l.querySelector("img"),n=l.querySelector(".n"),p=[...d.querySelectorAll("[data-i]")];let i=0,x=null;const s=k=>{i=(k+p.length)%p.length;const g=p[i].querySelector("img");m.src=g.dataset.lg;m.alt=g.alt;n.textContent=i+1+" / "+p.length};p.forEach((e,k)=>e.addEventListener("click",()=>{s(k);l.showModal()}));const q=(c,f)=>{const e=l.querySelector(c);e&&e.addEventListener("click",f)};q(".x",()=>l.close());q(".prev",()=>s(i-1));q(".next",()=>s(i+1));l.addEventListener("keydown",e=>{e.key==="ArrowLeft"&&s(i-1);e.key==="ArrowRight"&&s(i+1)});l.addEventListener("click",e=>{e.target===l&&l.close()});l.addEventListener("touchstart",e=>{x=e.touches[0].clientX},{passive:!0});l.addEventListener("touchend",e=>{if(x===null)return;const t=e.changedTouches[0].clientX-x;Math.abs(t)>40&&p.length>1&&s(i+(t<0?1:-1));x=null})})();`;
+export const SITE_SCRIPT = `(()=>{document.addEventListener("click",e=>{const a=e.target.closest&&e.target.closest("a[href]");if(!a||a.closest("footer"))return;const h=a.getAttribute("href")||"",k=h.startsWith("tel:")?"call":h.includes("wa.me/")?"whatsapp":"";k&&navigator.sendBeacon&&navigator.sendBeacon("/t",k)});const d=document,b=d.getElementById("bar"),c=d.getElementById("cta");if(b&&c){const v=()=>b.classList.toggle("on",c.getBoundingClientRect().bottom<0);addEventListener("scroll",v,{passive:!0});v()}const l=d.getElementById("lb");if(!l||!l.showModal)return;const m=l.querySelector("img"),n=l.querySelector(".n"),p=[...d.querySelectorAll("[data-i]")];let i=0,x=null;const s=k=>{i=(k+p.length)%p.length;const g=p[i].querySelector("img");m.src=g.dataset.lg;m.alt=g.alt;n.textContent=i+1+" / "+p.length};p.forEach((e,k)=>e.addEventListener("click",()=>{s(k);l.showModal()}));const q=(c,f)=>{const e=l.querySelector(c);e&&e.addEventListener("click",f)};q(".x",()=>l.close());q(".prev",()=>s(i-1));q(".next",()=>s(i+1));l.addEventListener("keydown",e=>{e.key==="ArrowLeft"&&s(i-1);e.key==="ArrowRight"&&s(i+1)});l.addEventListener("click",e=>{e.target===l&&l.close()});l.addEventListener("touchstart",e=>{x=e.touches[0].clientX},{passive:!0});l.addEventListener("touchend",e=>{if(x===null)return;const t=e.changedTouches[0].clientX-x;Math.abs(t)>40&&p.length>1&&s(i+(t<0?1:-1));x=null})})();`;
 
 export function escapeHtml(value) {
   return String(value ?? '').replace(
@@ -238,6 +240,7 @@ ${map ? `<div><dt>Directions</dt><dd><a href="${e(map)}" rel="noopener">Open in 
 </dl><a class="btn primary" href="${e(waHref)}">${ICONS.whatsapp}Message us on WhatsApp</a></section>
 </div>
 </main>
+${extrasHtml(site)}
 <footer class="site-footer">
 <p>Made on WhatsApp in 60 seconds with ${e(config.brand)}. <a href="${e(botLink(`Hi, I want a website like ${site.slug}`))}">Make yours</a></p>
 <p><a href="mailto:${e(config.abuseEmail)}?subject=${encodeURIComponent(`Report ${site.slug}`)}">Report this site</a></p>
@@ -251,7 +254,7 @@ ${lightbox}
     description,
     canonical: `${url}/`,
     head,
-    css: themeCss(site.theme) + SITE_CSS,
+    css: themeCss(site.theme) + SITE_CSS + EXTRAS_CSS,
     body,
     lang: site.language || 'en',
   });
@@ -394,5 +397,43 @@ export function renderSuspended() {
     robots: 'noindex',
     font: false,
     body: `<main class="center"><div><h1>This site is unavailable</h1><p>This website is not available right now.</p></div></main>`,
+  });
+}
+
+export function renderPaused(site) {
+  return page({
+    title: `${site?.businessName || 'Website'} · paused`,
+    css: LANDING_CSS,
+    robots: 'noindex',
+    body: `<main class="center"><div>
+<p class="eyebrow">${e(config.brand)}</p>
+<h1>This website is paused</h1>
+<p>${e(site?.businessName || 'This business')} has not activated this website yet. Are you the owner? Reactivate it in one tap on WhatsApp.</p>
+<a class="btn primary" href="${e(botLink('Hi, I want to reactivate my website'))}">${ICONS.whatsapp}Reactivate on WhatsApp</a>
+</div></main>`,
+  });
+}
+
+export function renderThanks(site) {
+  const lang = site?.language || 'en';
+  return page({
+    title: `${site?.businessName || 'Thank you'}`,
+    css: LANDING_CSS,
+    robots: 'noindex',
+    lang,
+    body: `<main class="center"><div>
+<h1>✓</h1>
+<p>${e(t(lang, 'thanks', { name: site?.businessName || '' }))}</p>
+<a class="btn primary" href="/">${e(t(lang, 'back'))}</a>
+</div></main>`,
+  });
+}
+
+export function renderMessage(title, text) {
+  return page({
+    title,
+    css: LANDING_CSS,
+    robots: 'noindex',
+    body: `<main class="center"><div><p class="eyebrow">${e(config.brand)}</p><h1>${e(title)}</h1><p>${e(text)}</p></div></main>`,
   });
 }

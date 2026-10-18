@@ -46,6 +46,9 @@ export function parseIncoming(body) {
             if (String(m.document?.mime_type || '').startsWith('image/')) {
               msg.type = 'image';
               msg.mediaId = m.document.id;
+            } else if (String(m.document?.mime_type || '').startsWith('video/')) {
+              msg.type = 'video';
+              msg.mediaId = m.document.id;
             }
             msg.text = m.document?.caption || '';
             break;
@@ -57,6 +60,14 @@ export function parseIncoming(body) {
           case 'button':
             msg.buttonId = m.button?.payload || null;
             msg.text = m.button?.text || '';
+            break;
+          case 'audio':
+            msg.mediaId = m.audio?.id || null;
+            msg.voice = Boolean(m.audio?.voice);
+            break;
+          case 'video':
+            msg.mediaId = m.video?.id || null;
+            msg.text = m.video?.caption || '';
             break;
           case 'location':
             msg.location = {
@@ -120,6 +131,23 @@ export function sendButtons(to, body, buttons) {
       },
     },
   });
+}
+
+export function sendTemplate(to, name, lang, params = []) {
+  return send(to, {
+    type: 'template',
+    template: {
+      name,
+      language: { code: lang },
+      components: params.length
+        ? [{ type: 'body', parameters: params.map((p) => ({ type: 'text', text: String(p).slice(0, 900) || '-' })) }]
+        : [],
+    },
+  });
+}
+
+export function isWindowClosed(err) {
+  return /131047|re-engagement|24 hours/i.test(String(err?.message || ''));
 }
 
 export async function downloadMedia(mediaId) {
