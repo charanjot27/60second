@@ -57,16 +57,23 @@ After launch the owner changes anything by typing it in plain words, for example
 the facts or the pictures, and the previous version is kept for `undo`.
 
 Every site starts as a 24-hour free trial when billing is configured; admin numbers never get a trial.
-The bot sends a signed payment link where the owner picks one month or monthly autopay and pays
-through Razorpay by UPI, card or Apple Pay. Each payment is re-checked with the Razorpay API
-(status, amount, currency, plan) before it counts, and every payment id is counted once.
-One payment keeps the site online for `PLAN_DAYS`; owners get a reminder three days before the end.
-Unpaid trials, ended months and cancelled plans go offline at render time and in a 5-minute background sweep.
+The bot sends a signed payment link where the owner picks monthly or every-2-weeks, with autopay or
+paying once, through Stripe (card, Apple Pay, Google Pay) or Razorpay (UPI, card, Apple Pay).
+Every payment is re-checked with the provider's API (status, amount, currency, plan) before it counts,
+and each payment id is counted once. Owners get a reminder three days before their paid time ends.
+Unpaid trials, ended periods and cancelled plans go offline at render time and in a 5-minute background sweep.
+
+Owners on a paid plan can send `domain` to get their own address. The bot suggests names that fit the
+business, checks them live on Porkbun and shows only free ones with a yearly price (Porkbun price plus
+`DOMAIN_MARGIN`). After payment it registers the name, points its DNS at the site and connects it.
+Domains are reminded 30, 7 and 1 days before they expire; an expired domain falls back to the free address.
 
 | Command | What it does |
 |---|---|
 | any sentence or voice note | Applies that change to the site (voice notes are read back for confirmation first) |
-| `pay` | Sends the payment link (one month or autopay); paying early adds a month |
+| `pay` | Sends the payment link (monthly or every 2 weeks, autopay or once); paying early adds time |
+| `domain` | Finds and buys a domain, or renews the current one |
+| `check mybusiness.com` | Checks and prices one domain |
 | `cancel plan` | Stops autopay and takes the site offline at once |
 | `connect domain mybusiness.com` | Adds the owner's own domain and sends the DNS records for GoDaddy and others |
 | `leads` | Shows the latest enquiries from the website form |
@@ -106,7 +113,11 @@ src/
 ├── i18n.js        Onboarding text in English, Hindi and Punjabi
 ├── voice.js       Voice-note transcription (Cloudflare Whisper, Gemini backup)
 ├── billing.js     Trials, payments, webhooks, cancellations, expiry sweeps
+├── plans.js       Plans and prices
+├── stripe.js      Stripe API client and webhook signatures
 ├── razorpay.js    Razorpay API client and signature checks
+├── porkbun.js     Porkbun API client
+├── domainshop.js  Domain ideas, quotes, purchase, DNS and renewals
 ├── memory.js      Design memory: avoids repeated fonts and colours, learns from paid sites
 ├── designrules.js Design seeds and the hard design rules
 ├── industry.js    Business classes: favicon icon, themes, section pictures and content per class
@@ -160,10 +171,11 @@ test/
 | `CF_ACCOUNT_ID`, `CF_AI_TOKEN`, `CF_IMAGE_MODEL` | Optional Cloudflare Workers AI pictures |
 | `PEXELS_API_KEY`, `UNSPLASH_ACCESS_KEY`, `PIXABAY_API_KEY` | Real stock photos; Claude picks the best stock or AI picture for each spot |
 | `ADMIN_NUMBERS` | Numbers that skip limits and trials, and may send `model check` |
-| `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` | Payments by UPI, card and Apple Pay; webhook at `https://ROOT_DOMAIN/razorpay/webhook` |
-| `RAZORPAY_PLAN_ID` | Monthly Razorpay plan for UPI Autopay and card autopay |
-| `PRICE_AMOUNT`, `PRICE_CURRENCY`, `PLAN_DAYS` | Price per month (799 INR by default) and days per payment |
-| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID` | Optional Stripe Checkout instead of Razorpay; webhook at `https://ROOT_DOMAIN/stripe/webhook` |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Payments by card, Apple Pay and Google Pay; webhook at `https://ROOT_DOMAIN/stripe/webhook` |
+| `PRICE_CURRENCY`, `PRICE_MONTHLY`, `PRICE_BIWEEKLY` | Plan prices ($9 a month and $5 every 2 weeks by default); 0 hides a plan |
+| `PAYMENTS=razorpay`, `RAZORPAY_*` | Razorpay instead of Stripe (UPI); webhook at `https://ROOT_DOMAIN/razorpay/webhook` |
+| `PORKBUN_API_KEY`, `PORKBUN_SECRET_KEY` | Buying and renewing owners' domains |
+| `DOMAIN_MARGIN`, `USD_RATE`, `DOMAIN_MAX_USD` | Domain pricing |
 | `TRIAL_HOURS`, `PRICE_LABEL` | Free trial length and the price shown in chat |
 | `TRIALS=on` | Trials without payment (demo mode). Admins send `activate <site>`, `extend <site> <hours>`, `pause <site>` or `status <site>` on WhatsApp |
 | `RENDER_API_KEY` | Connecting owners' own domains |

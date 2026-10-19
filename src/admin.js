@@ -105,7 +105,7 @@ export async function adminPage(req, res) {
               : b === 'cancelled'
                 ? `Cancelled ${date(s.cancelledAt)}`
                 : '';
-      return `<tr><td><a href="${e(siteUrl(s.slug))}">${e(s.slug)}</a>${s.customDomain ? `<br><small>${e(s.customDomain)}</small>` : ''}</td>
+      return `<tr><td><a href="${e(siteUrl(s.slug))}">${e(s.slug)}</a>${s.customDomain ? `<br><small>${e(s.customDomain)}</small>` : ''}${s.domain?.expiresAt ? `<br><small>domain until ${e(date(s.domain.expiresAt))}</small>` : ''}</td>
 <td>${e(s.businessName)}<br><small>${e([s.category, s.city].filter(Boolean).join(' · '))}</small></td>
 <td><a href="https://wa.me/${e(s.ownerPhone)}">${e(formatPhone(s.ownerPhone))}</a></td>
 <td><span class="pill ${b}">${e(FILTERS[b] || b)}</span></td><td>${e(s.style || 'basic')}</td>
@@ -129,9 +129,9 @@ export async function adminCsv(req, res) {
   if (!guard(req, res)) return;
   const { list, leadCounts } = await load();
   const now = Date.now();
-  const header = ['slug', 'business', 'category', 'city', 'owner', 'status', 'style', 'created', 'trial_ends', 'paid_at', 'paid_until', 'autopay', 'cancelled_at', 'custom_domain', 'leads'];
+  const header = ['slug', 'business', 'category', 'city', 'owner', 'status', 'style', 'created', 'trial_ends', 'paid_at', 'paid_until', 'autopay', 'cancelled_at', 'custom_domain', 'domain_expires', 'leads'];
   const lines = list.map((s) =>
-    [s.slug, s.businessName, s.category, s.city, s.ownerPhone, bucket(s, now), s.style || 'basic', date(s.createdAt), date(s.trialEndsAt), date(s.billing?.paidAt), date(s.billing?.paidUntil), s.billing?.autopay ? 'yes' : '', date(s.cancelledAt), s.customDomain, leadCounts[s.slug] || 0]
+    [s.slug, s.businessName, s.category, s.city, s.ownerPhone, bucket(s, now), s.style || 'basic', date(s.createdAt), date(s.trialEndsAt), date(s.billing?.paidAt), date(s.billing?.paidUntil), s.billing?.autopay ? 'yes' : '', date(s.cancelledAt), s.customDomain, date(s.domain?.expiresAt), leadCounts[s.slug] || 0]
       .map(csvCell)
       .join(',')
   );

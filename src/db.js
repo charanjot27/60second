@@ -26,6 +26,7 @@ export async function connect() {
     sites.createIndex({ status: 1, trialEndsAt: 1 }),
     sites.createIndex({ status: 1, 'billing.paidUntil': 1 }),
     payments.createIndex({ slug: 1, at: -1 }),
+    sites.createIndex({ 'domain.expiresAt': 1 }, { sparse: true }),
     sites.createIndex({ 'billing.subscriptionId': 1 }, { sparse: true }),
     leads.createIndex({ slug: 1, at: -1 }),
     designs.createIndex({ at: -1 }),

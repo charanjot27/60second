@@ -9,11 +9,12 @@ import {
   billingEnabled,
   autopayAvailable,
   createPayment,
+  confirmCheckout,
   confirmPaymentLink,
   confirmSubscription,
   handleRazorpayEvent,
   payMethods,
-  priceLabel,
+  provider,
   shortDate,
   verifyPayKey,
   verifyStripeSignature,
@@ -22,7 +23,9 @@ import {
   sweepPlans,
   accessState,
 } from './billing.js';
-import { razorpayEnabled, verifyRazorpayWebhook, verifyLinkCallback, verifySubscriptionCallback } from './razorpay.js';
+import { plans, money, priceLabel } from './plans.js';
+import { domainShopEnabled, quoteRenewal, sweepDomainRenewals } from './domainshop.js';
+import { verifyRazorpayWebhook, verifyLinkCallback, verifySubscriptionCallback } from './razorpay.js';
 import { sweepDomains } from './domains.js';
 import { handleLead, handleTap } from './leads.js';
 import { adminPage, adminCsv } from './admin.js';
@@ -139,52 +142,99 @@ async function payableSite(req, res) {
 }
 
 const paidLive = (site) => site.plan === 'paid' && accessState(site) === 'live';
+const processor = () => (provider() === 'razorpay' ? 'Razorpay' : 'Stripe');
+const unavailable = (res) => page(res, 502, 'Payment unavailable', 'Payments are not available right now. Please try again in a few minutes.');
 
 app.get('/pay/:slug', rootOnly, async (req, res) => {
   const found = await payableSite(req, res);
   if (!found) return;
   const { site, key } = found;
   if (paidLive(site) && (site.billing?.autopay || !site.billing?.paidUntil)) {
-    return page(res, 200, 'Your plan is active', `${site.slug}.${config.rootDomain} is live${site.billing?.autopay ? ' and renews by itself every month' : ''}. Nothing to pay right now.`);
+    return page(res, 200, 'Your plan is active', `${site.slug}.${config.rootDomain} is live${site.billing?.autopay ? ' and renews by itself' : ''}. Nothing to pay right now.`);
   }
-  if (!razorpayEnabled()) {
-    try {
-      return res.redirect(303, await createPayment(site, 'auto'));
-    } catch (err) {
-      log.error('checkout failed', err, { slug: site.slug });
-      return page(res, 502, 'Payment unavailable', 'Payments are not available right now. Please try again in a few minutes.');
+  const options = plans().flatMap((p) => [
+    ...(autopayAvailable(p) ? [{ plan: `${p.id}-auto`, title: `${p.name} · autopay`, text: `${money(p.amount)} ${p.every}, renews by itself. Cancel anytime on WhatsApp.` }] : []),
+    { plan: `${p.id}-once`, title: `${p.name} · pay once`, text: `${money(p.amount)} for ${p.days} days. No automatic charges.` },
+  ]);
+  options[0].primary = true;
+  const until = paidLive(site) && site.billing?.paidUntil ? ` Paid until ${shortDate(site.billing.paidUntil)}; paying now adds more time.` : '';
+  res
+    .set('Cache-Control', 'no-store')
+    .type('html')
+    .send(
+      renderPayPage({
+        site,
+        key,
+        heading: 'Keep your website online',
+        summary: `${site.slug}.${config.rootDomain} · ${priceLabel()}. Pay by ${payMethods()}.${until}`,
+        processor: processor(),
+        options,
+      })
+    );
+});
+
+app.get('/pay/:slug/domain', rootOnly, async (req, res) => {
+  const found = await payableSite(req, res);
+  if (!found) return;
+  const { site, key } = found;
+  if (!domainShopEnabled()) return page(res, 404, 'Not available', 'Domains are not available right now. Message us on WhatsApp.');
+  let order = site.domainOrder;
+  const fresh = order && !order.status && Date.now() - new Date(order.at).getTime() < 60 * 60 * 1000;
+  if (!fresh && site.domain?.name) {
+    if (new Date(site.domain.expiresAt).getTime() - Date.now() > 60 * 24 * 60 * 60 * 1000) {
+      return page(res, 200, 'Your domain is paid', `${site.domain.name} is paid until ${shortDate(site.domain.expiresAt)}. Nothing to pay right now.`);
     }
+    order = await quoteRenewal(site).catch((err) => log.warn('renewal quote failed', { error: err.message }));
+  } else if (!fresh) {
+    order = null;
   }
-  const options = [{ plan: 'once', title: `Pay for 1 month`, text: `${priceLabel()}. Pay again next month when you want.`, primary: !autopayAvailable() }];
-  if (autopayAvailable()) {
-    options.unshift({ plan: 'auto', title: 'Autopay every month', text: `${priceLabel()}, renews by itself. Cancel anytime on WhatsApp.`, primary: true });
-  }
-  const note = paidLive(site) && site.billing?.paidUntil ? `Paid until ${shortDate(site.billing.paidUntil)}; paying now adds a month.` : '';
-  res.set('Cache-Control', 'no-store').type('html').send(renderPayPage({ site, key, price: priceLabel(), methods: payMethods(), options, note }));
+  if (!order) return page(res, 410, 'Price expired', 'This domain price has expired. Send *domain* on WhatsApp to get a fresh one.');
+  res
+    .set('Cache-Control', 'no-store')
+    .type('html')
+    .send(
+      renderPayPage({
+        site,
+        key,
+        heading: order.type === 'renew' ? 'Renew your domain' : 'Get your domain',
+        summary: `${order.domain} for 1 year. Pay by ${payMethods()}.`,
+        processor: processor(),
+        options: [{ plan: 'domain', title: `Pay ${money(order.charge)}`, text: `${order.domain}, 1 year, set up for you automatically.`, primary: true }],
+      })
+    );
 });
 
 app.post('/pay/:slug', rootOnly, express.urlencoded({ extended: false, limit: '4kb' }), async (req, res) => {
   const found = await payableSite(req, res);
   if (!found) return;
+  const [plan, mode] = String(req.body?.plan || '').split('-');
   try {
-    return res.redirect(303, await createPayment(found.site, req.body?.plan === 'auto' ? 'auto' : 'once'));
+    const url =
+      plan === 'domain'
+        ? await createPayment(found.site, { kind: 'domain' })
+        : await createPayment(found.site, { kind: 'service', plan, auto: mode === 'auto' });
+    return res.redirect(303, url);
   } catch (err) {
     log.error('checkout failed', err, { slug: found.site.slug });
-    return page(res, 502, 'Payment unavailable', 'Payments are not available right now. Please try again in a few minutes.');
+    return unavailable(res);
   }
 });
 
 app.get('/paid', rootOnly, async (req, res) => {
   const q = Object.fromEntries(Object.entries(req.query).map(([k, v]) => [k, String(v)]));
-  let site = null;
+  let done = null;
   try {
-    if (razorpayEnabled() && verifyLinkCallback(q)) site = await confirmPaymentLink(q.razorpay_payment_link_id);
-    else if (razorpayEnabled() && verifySubscriptionCallback(q)) site = await confirmSubscription(q.razorpay_subscription_id, q.razorpay_payment_id);
+    if (provider() === 'stripe' && /^cs_[A-Za-z0-9_]+$/.test(q.session_id || '')) done = await confirmCheckout(q.session_id);
+    else if (provider() === 'razorpay' && verifyLinkCallback(q)) done = await confirmPaymentLink(q.razorpay_payment_link_id);
+    else if (provider() === 'razorpay' && verifySubscriptionCallback(q)) done = await confirmSubscription(q.razorpay_subscription_id, q.razorpay_payment_id);
   } catch (err) {
     log.error('payment confirmation failed', err);
   }
-  if (site?.billing?.paidUntil) {
-    return page(res, 200, 'Payment received', `Thank you! ${site.slug}.${config.rootDomain} is live until ${shortDate(site.billing.paidUntil)}. A confirmation is on its way to your WhatsApp.`);
+  if (done?.kind === 'domain') {
+    return page(res, 200, 'Payment received', `Thank you! We are setting up ${done.domain || 'your domain'} now. You will get a message on WhatsApp when it is live.`);
+  }
+  if (done?.paidUntil) {
+    return page(res, 200, 'Payment received', `Thank you! ${done.site.slug}.${config.rootDomain} is live until ${shortDate(done.paidUntil)}. A confirmation is on its way to your WhatsApp.`);
   }
   return page(res, 200, 'Thank you', 'We are confirming your payment. You will get a message on WhatsApp in a moment.');
 });
@@ -201,6 +251,7 @@ const SWEEP_MS = 5 * 60 * 1000;
 async function sweep() {
   await sweepTrials().catch((err) => log.error('trial sweep failed', err));
   await sweepPlans().catch((err) => log.error('plan sweep failed', err));
+  await sweepDomainRenewals().catch((err) => log.error('domain renewal sweep failed', err));
   await sweepDomains().catch((err) => log.error('domain sweep failed', err));
 }
 

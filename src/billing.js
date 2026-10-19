@@ -7,32 +7,37 @@ import { invalidate } from './site.js';
 import { track } from './limits.js';
 import { log } from './log.js';
 import { razorpayEnabled, rzp } from './razorpay.js';
+import { stripeEnabled, stripe } from './stripe.js';
+import { plans, planById, priceLabel } from './plans.js';
+
+export { verifyStripeSignature } from './stripe.js';
+export { priceLabel } from './plans.js';
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
-const STRIPE = 'https://api.stripe.com/v1';
+const GRACE = 2 * DAY;
 const CANCELLED = new Set(['canceled', 'unpaid', 'incomplete_expired']);
 
-function stripeEnabled() {
-  return Boolean(config.billing.stripeSecret && config.billing.priceId);
+export function provider() {
+  const wanted = config.billing.provider;
+  if (wanted === 'razorpay' && razorpayEnabled()) return 'razorpay';
+  if (wanted === 'stripe' && stripeEnabled()) return 'stripe';
+  if (stripeEnabled()) return 'stripe';
+  return razorpayEnabled() ? 'razorpay' : null;
 }
 
 export function billingEnabled() {
-  return razorpayEnabled() || stripeEnabled();
+  return Boolean(provider()) && plans().length > 0;
 }
 
-export function autopayAvailable() {
-  return razorpayEnabled() ? Boolean(config.razorpay.planId) : stripeEnabled();
+export function autopayAvailable(plan) {
+  if (provider() === 'stripe') return true;
+  if (provider() !== 'razorpay') return false;
+  return plan ? Boolean(config.razorpay.plans[plan.id]) : plans().some((p) => config.razorpay.plans[p.id]);
 }
 
 export function payMethods() {
-  return razorpayEnabled() ? 'UPI, card or Apple Pay' : 'card, Apple Pay or Google Pay';
-}
-
-export function priceLabel() {
-  if (config.billing.priceLabel) return config.billing.priceLabel;
-  const amount = config.billing.amount / 100;
-  return `${config.billing.currency === 'INR' ? '₹' : `${config.billing.currency} `}${amount} a month`;
+  return provider() === 'razorpay' ? 'UPI, card or Apple Pay' : 'card, Apple Pay or Google Pay';
 }
 
 export const shortDate = (d) =>
@@ -97,269 +102,14 @@ function sign(slug) {
   return crypto.createHmac('sha256', config.linkSecret).update(`pay:${slug}`).digest('hex').slice(0, 24);
 }
 
-export function payLink(slug) {
-  return `https://${config.rootDomain}/pay/${slug}?k=${sign(slug)}`;
+export function payLink(slug, path = '') {
+  return `https://${config.rootDomain}/pay/${slug}${path}?k=${sign(slug)}`;
 }
 
 export function verifyPayKey(slug, key) {
   const expected = Buffer.from(sign(slug));
   const given = Buffer.from(String(key || ''));
   return expected.length === given.length && crypto.timingSafeEqual(expected, given);
-}
-
-function form(params, prefix = '', out = new URLSearchParams()) {
-  for (const [k, v] of Object.entries(params)) {
-    const key = prefix ? `${prefix}[${k}]` : k;
-    if (v && typeof v === 'object') form(v, key, out);
-    else if (v !== undefined && v !== null) out.append(key, String(v));
-  }
-  return out;
-}
-
-async function stripe(method, path, params) {
-  const res = await fetch(`${STRIPE}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${config.billing.stripeSecret}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: params ? form(params) : undefined,
-    signal: AbortSignal.timeout(15000),
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`Stripe ${res.status}: ${body?.error?.message || 'request failed'}`);
-  return body;
-}
-
-export async function createCheckout(site) {
-  const session = await stripe('POST', '/checkout/sessions', {
-    mode: 'subscription',
-    line_items: { 0: { price: config.billing.priceId, quantity: 1 } },
-    client_reference_id: site.slug,
-    metadata: { slug: site.slug },
-    subscription_data: { metadata: { slug: site.slug } },
-    allow_promotion_codes: 'true',
-    success_url: `https://${config.rootDomain}/paid?site=${site.slug}`,
-    cancel_url: siteUrl(site.slug),
-  });
-  return session.url;
-}
-
-export async function cancelSubscription(site) {
-  const id = site.billing?.subscriptionId;
-  if (id && site.billing?.provider === 'razorpay') {
-    if (razorpayEnabled() && site.billing.autopay) await rzp('POST', `/subscriptions/${id}/cancel`, { cancel_at_cycle_end: 0 });
-  } else if (id && stripeEnabled()) {
-    await stripe('DELETE', `/subscriptions/${id}`);
-  }
-  await disableSite(site, 'cancelled', 'cancelled_by_owner');
-}
-
-const PENDING_MS = 20 * 60 * 1000;
-
-async function razorpayLink(site, plan) {
-  const reuse = site.billing?.pending?.[plan];
-  if (reuse?.url && Date.now() - new Date(reuse.at).getTime() < PENDING_MS) return reuse.url;
-  const notes = { slug: site.slug, plan };
-  const made =
-    plan === 'auto'
-      ? await rzp('POST', '/subscriptions', {
-          plan_id: config.razorpay.planId,
-          total_count: 60,
-          quantity: 1,
-          customer_notify: 1,
-          notes,
-          expire_by: Math.floor((Date.now() + DAY) / 1000),
-        })
-      : await rzp('POST', '/payment_links', {
-          amount: config.billing.amount,
-          currency: config.billing.currency,
-          accept_partial: false,
-          reference_id: `${site.slug}-${Date.now().toString(36)}`,
-          description: `${config.brand} website, ${config.billing.periodDays} days: ${site.slug}.${config.rootDomain}`,
-          customer: { name: String(site.businessName || '').slice(0, 50), contact: `+${site.ownerPhone}` },
-          notify: { sms: false, email: false },
-          reminder_enable: false,
-          notes,
-          callback_url: `https://${config.rootDomain}/paid?site=${site.slug}`,
-          callback_method: 'get',
-          expire_by: Math.floor((Date.now() + 2 * HOUR) / 1000),
-        });
-  if (!made?.short_url) throw new Error('Razorpay returned no payment link');
-  await sites.updateOne({ _id: site._id }, { $set: { [`billing.pending.${plan}`]: { id: made.id, url: made.short_url, at: new Date() } } });
-  return made.short_url;
-}
-
-export async function createPayment(site, plan) {
-  if (razorpayEnabled()) {
-    if (plan === 'auto' && !config.razorpay.planId) plan = 'once';
-    return razorpayLink(site, plan === 'auto' ? 'auto' : 'once');
-  }
-  return createCheckout(site);
-}
-
-async function claimPayment(paymentId, record) {
-  try {
-    await payments.insertOne({ _id: paymentId, ...record, at: new Date() });
-    return true;
-  } catch (err) {
-    if (isDuplicateKey(err)) return false;
-    throw err;
-  }
-}
-
-function priceMatches(amount, currency) {
-  return Number(amount) >= config.billing.amount && String(currency).toUpperCase() === config.billing.currency;
-}
-
-async function markPaid(site, set) {
-  await sites.updateOne(
-    { _id: site._id },
-    {
-      $set: { status: 'active', plan: 'paid', 'billing.provider': 'razorpay', 'billing.status': 'active', 'billing.paidAt': new Date(), updatedAt: new Date(), ...set },
-      $unset: { expiredAt: '', cancelledAt: '', 'billing.renewReminderAt': '' },
-    }
-  );
-  invalidate(site.slug, site.customDomain);
-  track(site.ownerPhone, 'paid', { slug: site.slug });
-  markOutcome(site.slug, 'converted').catch(() => {});
-}
-
-export async function confirmPaymentLink(linkId) {
-  const link = await rzp('GET', `/payment_links/${encodeURIComponent(linkId)}`);
-  if (link.status !== 'paid') return null;
-  const site = link.notes?.slug && (await sites.findOne({ slug: link.notes.slug }));
-  if (!site) {
-    log.warn('payment for unknown site', { slug: link.notes?.slug });
-    return null;
-  }
-  const paymentId = link.payments?.find((p) => p.status === 'captured')?.payment_id || link.payments?.[0]?.payment_id || link.id;
-  if (!priceMatches(link.amount_paid, link.currency)) {
-    log.warn('payment amount mismatch', { slug: site.slug, amount: link.amount_paid, currency: link.currency });
-    return null;
-  }
-  if (!(await claimPayment(paymentId, { slug: site.slug, kind: 'once', amount: link.amount_paid, currency: link.currency, linkId: link.id }))) return site;
-  const current = site.billing?.paidUntil && accessState(site) === 'live' ? new Date(site.billing.paidUntil).getTime() : Date.now();
-  const paidUntil = new Date(Math.max(current, Date.now()) + config.billing.periodDays * DAY);
-  try {
-    await markPaid(site, { 'billing.paidUntil': paidUntil, 'billing.lastPaymentId': paymentId, 'billing.pending.once': null });
-  } catch (err) {
-    await payments.deleteOne({ _id: paymentId }).catch(() => {});
-    throw err;
-  }
-  await alertOwner(
-    site,
-    `✅ Payment received, thank you! ${siteUrl(site.slug)} is live until *${shortDate(paidUntil)}*.
-
-To pay for the next month, send *pay* anytime.`,
-    'Payment received'
-  );
-  return { ...site, billing: { ...site.billing, paidUntil } };
-}
-
-export async function confirmSubscription(subscriptionId, paymentId) {
-  const sub = await rzp('GET', `/subscriptions/${encodeURIComponent(subscriptionId)}`);
-  if (sub.plan_id !== config.razorpay.planId || sub.status !== 'active' || !sub.current_end) return null;
-  const site = sub.notes?.slug && (await sites.findOne({ slug: sub.notes.slug }));
-  if (!site) {
-    log.warn('subscription for unknown site', { slug: sub.notes?.slug });
-    return null;
-  }
-  const paidUntil = new Date(sub.current_end * 1000 + 2 * DAY);
-  await markPaid(site, {
-    'billing.paidUntil': paidUntil,
-    'billing.subscriptionId': sub.id,
-    'billing.autopay': true,
-    'billing.pending.auto': null,
-    ...(paymentId ? { 'billing.lastPaymentId': paymentId } : {}),
-  });
-  const claimed = await claimPayment(`${sub.id}:${sub.current_end}`, {
-    slug: site.slug,
-    kind: 'autopay',
-    paymentId: paymentId || null,
-    subscriptionId: sub.id,
-    amount: config.billing.amount,
-    currency: config.billing.currency,
-  });
-  if (!claimed) return site;
-  await alertOwner(
-    site,
-    `✅ Autopay is on, thank you! ${siteUrl(site.slug)} stays live and renews by itself every month (next around *${shortDate(sub.current_end * 1000)}*).
-
-To stop autopay, send *cancel plan*.`,
-    'Payment received'
-  );
-  return site;
-}
-
-async function autopayStopped(subscription, reason) {
-  const site = await sites.findOne({ 'billing.subscriptionId': subscription.id });
-  if (!site || site.status === 'cancelled' || !site.billing?.autopay) return;
-  await sites.updateOne({ _id: site._id }, { $set: { 'billing.autopay': false, 'billing.status': reason, updatedAt: new Date() } });
-  const until = site.billing.paidUntil;
-  await alertOwner(
-    site,
-    `⚠️ Autopay for ${siteUrl(site.slug)} has stopped.` +
-      (until && new Date(until) > new Date() ? ` Your website stays live until *${shortDate(until)}*.` : '') +
-      `
-
-To keep it online, pay here: ${payLink(site.slug)}`,
-    'Autopay stopped'
-  );
-}
-
-export async function handleRazorpayEvent(event, eventId) {
-  const key = eventId ? `rzp:${eventId}` : null;
-  if (key) {
-    try {
-      await processed.insertOne({ _id: key, at: new Date() });
-    } catch (err) {
-      if (isDuplicateKey(err)) return;
-      throw err;
-    }
-  }
-  try {
-    const payload = event?.payload || {};
-    const sub = payload.subscription?.entity;
-    if (event.event === 'payment_link.paid' && payload.payment_link?.entity?.id) {
-      await confirmPaymentLink(payload.payment_link.entity.id);
-    } else if (['subscription.activated', 'subscription.charged', 'subscription.resumed'].includes(event.event) && sub?.id) {
-      await confirmSubscription(sub.id, payload.payment?.entity?.id);
-    } else if (event.event === 'subscription.pending' && sub?.id) {
-      const site = await sites.findOne({ 'billing.subscriptionId': sub.id });
-      if (site) {
-        await alertOwner(site, `⚠️ This month's autopay for ${siteUrl(site.slug)} did not go through. Razorpay will retry, please keep money in the linked account or card.`, 'Payment failed');
-      }
-    } else if (['subscription.halted', 'subscription.cancelled', 'subscription.completed', 'subscription.paused'].includes(event.event) && sub?.id) {
-      await autopayStopped(sub, event.event.split('.')[1]);
-    }
-  } catch (err) {
-    if (key) await processed.deleteOne({ _id: key }).catch(() => {});
-    throw err;
-  }
-}
-
-export function verifyStripeSignature(rawBody, header, secret = config.billing.webhookSecret, now = Date.now()) {
-  if (!secret || !header || !Buffer.isBuffer(rawBody)) return false;
-  const parts = Object.fromEntries(
-    String(header)
-      .split(',')
-      .map((p) => p.split('='))
-      .filter((p) => p.length === 2 && p[0] !== 'v1')
-  );
-  const signatures = String(header)
-    .split(',')
-    .filter((p) => p.startsWith('v1='))
-    .map((p) => p.slice(3));
-  const t = Number(parts.t);
-  if (!t || Math.abs(now / 1000 - t) > 300 || !signatures.length) return false;
-  const expected = Buffer.from(
-    crypto.createHmac('sha256', secret).update(`${t}.`).update(rawBody).digest('hex')
-  );
-  return signatures.some((sig) => {
-    const given = Buffer.from(sig);
-    return given.length === expected.length && crypto.timingSafeEqual(given, expected);
-  });
 }
 
 async function disableSite(site, status, reason) {
@@ -371,66 +121,331 @@ async function disableSite(site, status, reason) {
   track(site.ownerPhone, status, { slug: site.slug, reason });
 }
 
-export async function handleStripeEvent(event) {
+export async function cancelSubscription(site) {
+  const id = site.billing?.subscriptionId;
+  if (id && site.billing?.autopay !== false) {
+    if (site.billing?.provider === 'razorpay') {
+      if (razorpayEnabled()) await rzp('POST', `/subscriptions/${id}/cancel`, { cancel_at_cycle_end: 0 });
+    } else if (stripeEnabled()) {
+      await stripe('DELETE', `/subscriptions/${id}`);
+    }
+  }
+  await disableSite(site, 'cancelled', 'cancelled_by_owner');
+}
+
+function purchaseFor(site, kind, planId) {
+  if (kind === 'domain') {
+    const order = site.domainOrder;
+    if (!order?.charge || Date.now() - new Date(order.at).getTime() > 2 * HOUR) return null;
+    return { kind, amount: order.charge, orderId: order.id, domain: order.domain, title: `${order.domain}, 1 year` };
+  }
+  const plan = planById(planId) || plans()[0];
+  return plan && { kind: 'service', plan, amount: plan.amount, title: `${config.brand} website, ${plan.name.toLowerCase()}: ${site.slug}.${config.rootDomain}` };
+}
+
+async function stripeCheckout(site, purchase, auto) {
+  const metadata = { slug: site.slug, kind: purchase.kind, plan: purchase.plan?.id, domain: purchase.domain, orderId: purchase.orderId };
+  const session = await stripe('POST', '/checkout/sessions', {
+    mode: auto ? 'subscription' : 'payment',
+    line_items: {
+      0: {
+        quantity: 1,
+        price_data: {
+          currency: config.billing.currency.toLowerCase(),
+          unit_amount: purchase.amount,
+          product_data: { name: purchase.title },
+          ...(auto ? { recurring: purchase.plan.recurring } : {}),
+        },
+      },
+    },
+    client_reference_id: site.slug,
+    metadata,
+    ...(auto ? { subscription_data: { metadata } } : { payment_intent_data: { metadata } }),
+    success_url: `https://${config.rootDomain}/paid?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: payLink(site.slug, purchase.kind === 'domain' ? '/domain' : ''),
+  });
+  if (!session?.url) throw new Error('Stripe returned no checkout link');
+  return session.url;
+}
+
+async function razorpayCheckout(site, purchase, auto) {
+  const notes = { slug: site.slug, kind: purchase.kind, plan: purchase.plan?.id || '', domain: purchase.domain || '', orderId: purchase.orderId || '' };
+  const made = auto
+    ? await rzp('POST', '/subscriptions', {
+        plan_id: config.razorpay.plans[purchase.plan.id],
+        total_count: 60,
+        quantity: 1,
+        customer_notify: 1,
+        notes,
+        expire_by: Math.floor((Date.now() + DAY) / 1000),
+      })
+    : await rzp('POST', '/payment_links', {
+        amount: purchase.amount,
+        currency: config.billing.currency,
+        accept_partial: false,
+        reference_id: `${site.slug}-${Date.now().toString(36)}`.slice(0, 40),
+        description: purchase.title,
+        customer: { name: String(site.businessName || '').slice(0, 50), contact: `+${site.ownerPhone}` },
+        notify: { sms: false, email: false },
+        reminder_enable: false,
+        notes,
+        callback_url: `https://${config.rootDomain}/paid?site=${site.slug}`,
+        callback_method: 'get',
+        expire_by: Math.floor((Date.now() + 2 * HOUR) / 1000),
+      });
+  if (!made?.short_url) throw new Error('Razorpay returned no payment link');
+  return made.short_url;
+}
+
+export async function createPayment(site, { kind = 'service', plan, auto = false } = {}) {
+  const purchase = purchaseFor(site, kind, plan);
+  if (!purchase) throw new Error('Nothing to pay for');
+  const recurring = kind === 'service' && auto && autopayAvailable(purchase.plan);
+  return provider() === 'razorpay' ? razorpayCheckout(site, purchase, recurring) : stripeCheckout(site, purchase, recurring);
+}
+
+async function claimPayment(id, record) {
   try {
-    await processed.insertOne({ _id: `stripe:${event.id}`, at: new Date() });
+    await payments.insertOne({ _id: id, ...record, at: new Date() });
+    return true;
+  } catch (err) {
+    if (isDuplicateKey(err)) return false;
+    throw err;
+  }
+}
+
+const currencyOk = (currency) => String(currency || '').toUpperCase() === config.billing.currency;
+
+async function markPaid(site, set) {
+  await sites.updateOne(
+    { _id: site._id },
+    {
+      $set: { status: 'active', plan: 'paid', 'billing.status': 'active', 'billing.paidAt': new Date(), updatedAt: new Date(), ...set },
+      $unset: { expiredAt: '', cancelledAt: '', 'billing.renewReminderAt': '' },
+    }
+  );
+  invalidate(site.slug, site.customDomain);
+  track(site.ownerPhone, 'paid', { slug: site.slug });
+  markOutcome(site.slug, 'converted').catch(() => {});
+}
+
+async function applyOneTime(site, pay) {
+  if (!currencyOk(pay.currency)) {
+    log.warn('payment currency mismatch', { slug: site.slug, currency: pay.currency });
+    return null;
+  }
+  if (pay.kind === 'domain') {
+    if (!(await claimPayment(pay.id, { slug: site.slug, kind: 'domain', amount: pay.amount, currency: pay.currency, provider: pay.provider, domain: pay.domain }))) {
+      return { site, kind: 'domain' };
+    }
+    const { domainPaid } = await import('./domainshop.js');
+    await domainPaid(site, pay);
+    return { site, kind: 'domain', domain: pay.domain };
+  }
+  const plan = planById(pay.plan) || plans()[0];
+  if (!plan || Number(pay.amount) < plan.amount) {
+    log.warn('payment amount mismatch', { slug: site.slug, amount: pay.amount, plan: pay.plan });
+    return null;
+  }
+  if (!(await claimPayment(pay.id, { slug: site.slug, kind: 'service', plan: plan.id, amount: pay.amount, currency: pay.currency, provider: pay.provider }))) {
+    return { site, kind: 'service', paidUntil: site.billing?.paidUntil };
+  }
+  const current = site.billing?.paidUntil && accessState(site) === 'live' ? new Date(site.billing.paidUntil).getTime() : 0;
+  const paidUntil = new Date(Math.max(current, Date.now()) + plan.days * DAY);
+  try {
+    await markPaid(site, { 'billing.paidUntil': paidUntil, 'billing.lastPaymentId': pay.id, 'billing.provider': pay.provider, 'billing.planId': plan.id });
+  } catch (err) {
+    await payments.deleteOne({ _id: pay.id }).catch(() => {});
+    throw err;
+  }
+  await alertOwner(
+    site,
+    `✅ Payment received, thank you! ${siteUrl(site.slug)} is live until *${shortDate(paidUntil)}*.\n\nTo pay for the next period, send *pay* anytime.`,
+    'Payment received'
+  );
+  return { site, kind: 'service', paidUntil };
+}
+
+async function applySubscription(site, sub) {
+  const paidUntil = new Date(sub.periodEnd * 1000 + GRACE);
+  await markPaid(site, {
+    'billing.paidUntil': paidUntil,
+    'billing.subscriptionId': sub.id,
+    'billing.autopay': true,
+    'billing.provider': sub.provider,
+    'billing.planId': sub.plan.id,
+    ...(sub.paymentId ? { 'billing.lastPaymentId': sub.paymentId } : {}),
+  });
+  const claimed = await claimPayment(`${sub.id}:${sub.periodEnd}`, {
+    slug: site.slug,
+    kind: 'autopay',
+    plan: sub.plan.id,
+    paymentId: sub.paymentId || null,
+    subscriptionId: sub.id,
+    amount: sub.amount ?? sub.plan.amount,
+    currency: config.billing.currency,
+    provider: sub.provider,
+  });
+  if (claimed) {
+    await alertOwner(
+      site,
+      `✅ Autopay payment received, thank you! ${siteUrl(site.slug)} stays live and renews by itself ${sub.plan.every} (next around *${shortDate(sub.periodEnd * 1000)}*).\n\nTo stop autopay, send *cancel plan*.`,
+      'Payment received'
+    );
+  }
+  return { site, kind: 'service', paidUntil };
+}
+
+async function autopayStopped(site, reason) {
+  if (!site || site.status === 'cancelled' || site.billing?.autopay === false) return;
+  if (!site.billing?.paidUntil) {
+    await disableSite(site, 'cancelled', reason);
+    await alertOwner(site, `Your ${config.brand} plan was cancelled, so ${siteUrl(site.slug)} is now offline.\n\nTo bring it back, pay here: ${payLink(site.slug)}`, 'Plan cancelled');
+    return;
+  }
+  await sites.updateOne({ _id: site._id }, { $set: { 'billing.autopay': false, 'billing.status': reason, updatedAt: new Date() } });
+  const until = site.billing.paidUntil;
+  await alertOwner(
+    site,
+    `⚠️ Autopay for ${siteUrl(site.slug)} has stopped.` +
+      (new Date(until) > new Date() ? ` Your website stays live until *${shortDate(until)}*.` : '') +
+      `\n\nTo keep it online, pay here: ${payLink(site.slug)}`,
+    'Autopay stopped'
+  );
+}
+
+async function siteBySlug(slug) {
+  const site = slug && (await sites.findOne({ slug }));
+  if (!site) log.warn('payment for unknown site', { slug });
+  return site || null;
+}
+
+async function stripeSubscription(id, paymentId) {
+  const sub = await stripe('GET', `/subscriptions/${encodeURIComponent(id)}`);
+  const item = sub.items?.data?.[0];
+  const plan = planById(sub.metadata?.plan);
+  const periodEnd = sub.current_period_end || item?.current_period_end;
+  if (!plan || !['active', 'trialing'].includes(sub.status) || !periodEnd) return null;
+  if (Number(item?.price?.unit_amount) < plan.amount || !currencyOk(item?.price?.currency)) {
+    log.warn('subscription price mismatch', { id, amount: item?.price?.unit_amount });
+    return null;
+  }
+  const site = await siteBySlug(sub.metadata?.slug);
+  return site && applySubscription(site, { provider: 'stripe', id: sub.id, plan, periodEnd, paymentId, amount: item.price.unit_amount });
+}
+
+export async function confirmCheckout(sessionId) {
+  const session = await stripe('GET', `/checkout/sessions/${encodeURIComponent(sessionId)}`);
+  if (session.status !== 'complete' || session.payment_status !== 'paid') return null;
+  if (session.mode === 'subscription') return session.subscription ? stripeSubscription(session.subscription) : null;
+  const meta = session.metadata || {};
+  const site = await siteBySlug(meta.slug);
+  return (
+    site &&
+    applyOneTime(site, {
+      id: session.payment_intent || session.id,
+      kind: meta.kind === 'domain' ? 'domain' : 'service',
+      plan: meta.plan,
+      domain: meta.domain,
+      orderId: meta.orderId,
+      amount: session.amount_total,
+      currency: session.currency,
+      provider: 'stripe',
+    })
+  );
+}
+
+async function onceEvent(key, run) {
+  try {
+    await processed.insertOne({ _id: key, at: new Date() });
   } catch (err) {
     if (isDuplicateKey(err)) return;
     throw err;
   }
-  const obj = event.data?.object || {};
+  try {
+    await run();
+  } catch (err) {
+    await processed.deleteOne({ _id: key }).catch(() => {});
+    throw err;
+  }
+}
 
-  if (event.type === 'checkout.session.completed') {
-    const slug = obj.metadata?.slug || obj.client_reference_id;
-    const site = slug && (await sites.findOne({ slug }));
-    if (!site) return log.warn('payment for unknown site', { slug });
-    await sites.updateOne(
-      { _id: site._id },
-      {
-        $set: {
-          status: 'active',
-          plan: 'paid',
-          'billing.customerId': obj.customer || null,
-          'billing.subscriptionId': obj.subscription || null,
-          'billing.status': 'active',
-          'billing.paidAt': new Date(),
-          updatedAt: new Date(),
-        },
-        $unset: { expiredAt: '', cancelledAt: '' },
+export function handleStripeEvent(event) {
+  return onceEvent(`stripe:${event.id}`, async () => {
+    const obj = event.data?.object || {};
+    if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
+      await confirmCheckout(obj.id);
+      return;
+    }
+    if (event.type === 'invoice.paid') {
+      const subId = obj.subscription || obj.parent?.subscription_details?.subscription;
+      if (subId) await stripeSubscription(subId, obj.payment_intent || obj.id);
+      return;
+    }
+    if (event.type === 'invoice.payment_failed') {
+      const subId = obj.subscription || obj.parent?.subscription_details?.subscription;
+      const site = subId && (await sites.findOne({ 'billing.subscriptionId': subId }));
+      if (site) {
+        await alertOwner(site, `⚠️ This autopay payment for ${siteUrl(site.slug)} did not go through. Please check your card; it will be retried automatically.`, 'Payment failed');
       }
-    );
-    invalidate(site.slug, site.customDomain);
-    track(site.ownerPhone, 'paid', { slug: site.slug });
-    markOutcome(site.slug, 'converted').catch(() => {});
-    await alertOwner(site, `✅ Payment received, thank you! Your website stays live:\n${siteUrl(site.slug)}`, 'Payment received');
-    return;
-  }
+      return;
+    }
+    if (event.type === 'customer.subscription.updated' || event.type === 'customer.subscription.deleted') {
+      const stopped = event.type === 'customer.subscription.deleted' || obj.cancel_at_period_end || CANCELLED.has(obj.status);
+      if (!stopped) return;
+      const site =
+        (await sites.findOne({ 'billing.subscriptionId': obj.id })) ||
+        (obj.metadata?.slug && (await sites.findOne({ slug: obj.metadata.slug })));
+      await autopayStopped(site, obj.status || 'canceled');
+    }
+  });
+}
 
-  if (event.type === 'customer.subscription.updated' || event.type === 'customer.subscription.deleted') {
-    const site =
-      (await sites.findOne({ 'billing.subscriptionId': obj.id })) ||
-      (obj.metadata?.slug && (await sites.findOne({ slug: obj.metadata.slug })));
-    if (!site) return;
-    const cancelled = event.type === 'customer.subscription.deleted' || obj.cancel_at_period_end || CANCELLED.has(obj.status);
-    if (cancelled) {
-      if (site.status === 'cancelled') return;
-      await disableSite(site, 'cancelled', obj.status || 'canceled');
-      await alertOwner(
-        site,
-        `Your ${config.brand} plan was cancelled, so ${siteUrl(site.slug)} is now offline.\n\nTo bring it back, subscribe again: ${payLink(site.slug)}`,
-        'Plan cancelled'
-      );
-      return;
+export async function confirmPaymentLink(linkId) {
+  const link = await rzp('GET', `/payment_links/${encodeURIComponent(linkId)}`);
+  if (link.status !== 'paid') return null;
+  const notes = link.notes || {};
+  const site = await siteBySlug(notes.slug);
+  if (!site) return null;
+  const paymentId = link.payments?.find((p) => p.status === 'captured')?.payment_id || link.payments?.[0]?.payment_id || link.id;
+  return applyOneTime(site, {
+    id: paymentId,
+    kind: notes.kind === 'domain' ? 'domain' : 'service',
+    plan: notes.plan || 'monthly',
+    domain: notes.domain,
+    orderId: notes.orderId,
+    amount: link.amount_paid,
+    currency: link.currency,
+    provider: 'razorpay',
+  });
+}
+
+export async function confirmSubscription(subscriptionId, paymentId) {
+  const sub = await rzp('GET', `/subscriptions/${encodeURIComponent(subscriptionId)}`);
+  const plan = plans().find((p) => config.razorpay.plans[p.id] && config.razorpay.plans[p.id] === sub.plan_id);
+  if (!plan || sub.status !== 'active' || !sub.current_end) return null;
+  const site = await siteBySlug(sub.notes?.slug);
+  return site && applySubscription(site, { provider: 'razorpay', id: sub.id, plan, periodEnd: sub.current_end, paymentId });
+}
+
+export async function handleRazorpayEvent(event, eventId) {
+  const run = async () => {
+    const payload = event?.payload || {};
+    const sub = payload.subscription?.entity;
+    if (event.event === 'payment_link.paid' && payload.payment_link?.entity?.id) {
+      await confirmPaymentLink(payload.payment_link.entity.id);
+    } else if (['subscription.activated', 'subscription.charged', 'subscription.resumed'].includes(event.event) && sub?.id) {
+      await confirmSubscription(sub.id, payload.payment?.entity?.id);
+    } else if (event.event === 'subscription.pending' && sub?.id) {
+      const site = await sites.findOne({ 'billing.subscriptionId': sub.id });
+      if (site) {
+        await alertOwner(site, `⚠️ This autopay payment for ${siteUrl(site.slug)} did not go through. Razorpay will retry, please keep money in the linked account or card.`, 'Payment failed');
+      }
+    } else if (['subscription.halted', 'subscription.cancelled', 'subscription.completed', 'subscription.paused'].includes(event.event) && sub?.id) {
+      await autopayStopped(await sites.findOne({ 'billing.subscriptionId': sub.id }), event.event.split('.')[1]);
     }
-    if (obj.status === 'past_due') {
-      await sites.updateOne({ _id: site._id }, { $set: { 'billing.status': 'past_due' } });
-      await alertOwner(site, `⚠️ Your last payment for ${siteUrl(site.slug)} did not go through. Please check your card; we will retry automatically.`, 'Payment failed');
-      return;
-    }
-    if (obj.status === 'active') {
-      await sites.updateOne({ _id: site._id }, { $set: { 'billing.status': 'active' } });
-    }
-  }
+  };
+  return eventId ? onceEvent(`rzp:${eventId}`, run) : run();
 }
 
 export async function sweepPlans(now = new Date()) {
@@ -444,9 +459,7 @@ export async function sweepPlans(now = new Date()) {
     await sites.updateOne({ _id: site._id }, { $set: { 'billing.renewReminderAt': now } });
     await alertOwner(
       site,
-      `⏳ Your paid month for ${siteUrl(site.slug)} ends on *${shortDate(site.billing.paidUntil)}*.
-
-Pay for the next month (${priceLabel()}) by ${payMethods()}: ${payLink(site.slug)}`,
+      `⏳ Your paid time for ${siteUrl(site.slug)} ends on *${shortDate(site.billing.paidUntil)}*.\n\nKeep it online (${priceLabel()}), pay by ${payMethods()}: ${payLink(site.slug)}`,
       'Your plan ends soon'
     );
   }
@@ -456,9 +469,7 @@ Pay for the next month (${priceLabel()}) by ${payMethods()}: ${payLink(site.slug
     await disableSite(site, 'expired', 'period_ended');
     await alertOwner(
       site,
-      `Your paid month has ended, so ${siteUrl(site.slug)} is now offline.
-
-Pay ${priceLabel()} by ${payMethods()} to bring it back instantly: ${payLink(site.slug)}`,
+      `Your paid time has ended, so ${siteUrl(site.slug)} is now offline.\n\nPay ${priceLabel()} by ${payMethods()} to bring it back instantly: ${payLink(site.slug)}`,
       'Your plan has ended'
     );
   }

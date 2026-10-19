@@ -9,7 +9,6 @@ process.env.CF_ACCOUNT_ID = 'acc';
 process.env.CF_AI_TOKEN = 'cf-token';
 process.env.ANTHROPIC_API_KEY = 'test-anthropic';
 process.env.STRIPE_SECRET_KEY = 'sk_test_x';
-process.env.STRIPE_PRICE_ID = 'price_x';
 process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
 process.env.ADMIN_PASSWORD = 'pw';
 
@@ -24,6 +23,7 @@ function matches(doc, query = {}) {
     const v = get(doc, k);
     if (cond && typeof cond === 'object' && !(cond instanceof Date) && !(cond instanceof RegExp)) {
       if ('$exists' in cond) return cond.$exists ? v !== undefined : v === undefined;
+      if ('$ne' in cond) return v !== cond.$ne;
       if ('$in' in cond) return cond.$in.includes(v);
       if ('$lte' in cond || '$gt' in cond) {
         const t = v ? new Date(v).getTime() : NaN;
@@ -136,6 +136,8 @@ const { t, LANGS, stringKeys } = await import('../src/i18n.js');
 const { parseIncoming } = await import('../src/whatsapp.js');
 const billing = await import('../src/billing.js');
 const razorpay = await import('../src/razorpay.js');
+const shop = await import('../src/domainshop.js');
+const { priceLabel } = await import('../src/plans.js');
 const { parseLead } = await import('../src/leads.js');
 const { summarize, bucket } = await import('../src/admin.js');
 const { memoryNote, repeatsRecentFont, fingerprint } = await import('../src/memory.js');
@@ -187,32 +189,6 @@ test('access state switches trials off at expiry and cancelled sites off at once
   assert.equal(billing.accessState({ status: 'active' }, now), 'live');
   assert.ok(billing.verifyPayKey('shop', new URL(billing.payLink('shop')).searchParams.get('k')));
   assert.ok(!billing.verifyPayKey('other', new URL(billing.payLink('shop')).searchParams.get('k')));
-});
-
-test('stripe events activate, then cancel and disable a site', async () => {
-  const realFetch = globalThis.fetch;
-  const sent = [];
-  globalThis.fetch = async (url, init) => {
-    sent.push({ url: String(url), body: init?.body });
-    return new Response('{"messages":[{"id":"x"}]}', { status: 200, headers: { 'content-type': 'application/json' } });
-  };
-  try {
-    await db.sites.insertOne({ slug: 'paidshop', ownerPhone: '919000000001', businessName: 'Paid Shop', status: 'trial', plan: 'trial', trialEndsAt: new Date(Date.now() + 3600e3) });
-    await billing.handleStripeEvent({ id: 'evt_a', type: 'checkout.session.completed', data: { object: { metadata: { slug: 'paidshop' }, customer: 'cus_1', subscription: 'sub_1' } } });
-    let site = await db.sites.findOne({ slug: 'paidshop' });
-    assert.equal(site.status, 'active');
-    assert.equal(site.plan, 'paid');
-    assert.equal(bucket(site), 'paying');
-    await billing.handleStripeEvent({ id: 'evt_a', type: 'checkout.session.completed', data: { object: { metadata: { slug: 'paidshop' } } } });
-    await billing.handleStripeEvent({ id: 'evt_b', type: 'customer.subscription.updated', data: { object: { id: 'sub_1', status: 'active', cancel_at_period_end: true } } });
-    site = await db.sites.findOne({ slug: 'paidshop' });
-    assert.equal(site.status, 'cancelled');
-    assert.equal(billing.accessState(site), 'cancelled');
-    assert.ok(sent.some((s) => String(s.body).includes('Payment received')));
-    assert.ok(sent.some((s) => String(s.body).includes('now offline')));
-  } finally {
-    globalThis.fetch = realFetch;
-  }
 });
 
 test('trial sweep reminds, then disables expired trials', async () => {
@@ -486,7 +462,6 @@ test('typed answers can be corrected, and live voice edits are confirmed first',
 test('demo mode: trials without payment, owner asks to keep it, admin extends and activates', async () => {
   const saved = { ...config.billing };
   config.billing.stripeSecret = '';
-  config.billing.priceId = '';
   config.billing.trialsWithoutPayment = true;
   config.adminNumbers.push('919999900000');
   const realFetch = globalThis.fetch;
@@ -741,27 +716,6 @@ test('the better Cloudflare model is tried first and falls back to FLUX when ref
   }
 });
 
-function withRazorpay(routes) {
-  const saved = { ...config.razorpay };
-  Object.assign(config.razorpay, { keyId: 'rzp_test_k', keySecret: 'rzp_secret', webhookSecret: 'rzp_hook', planId: 'plan_m' });
-  const realFetch = globalThis.fetch;
-  const calls = [];
-  globalThis.fetch = async (url, init) => {
-    const u = String(url);
-    calls.push({ url: u, method: init?.method || 'GET', body: init?.body ? String(init.body) : '' });
-    const hit = Object.entries(routes).find(([k]) => u.includes(k));
-    const body = hit ? (typeof hit[1] === 'function' ? hit[1](u, init) : hit[1]) : { messages: [{ id: 'x' }] };
-    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
-  };
-  return {
-    calls,
-    restore() {
-      globalThis.fetch = realFetch;
-      Object.assign(config.razorpay, saved);
-    },
-  };
-}
-
 test('razorpay webhook and checkout callback signatures are checked', () => {
   const raw = Buffer.from('{"event":"payment_link.paid"}');
   const sig = crypto.createHmac('sha256', 'rzp_hook').update(raw).digest('hex');
@@ -780,122 +734,318 @@ test('razorpay webhook and checkout callback signatures are checked', () => {
   assert.ok(!razorpay.verifySubscriptionCallback({ ...sq, razorpay_subscription_id: 'sub_8' }, 'rzp_secret'));
 });
 
-test('one-month payments are confirmed with razorpay, counted once and stack', async () => {
-  const links = {
-    plink_1: { id: 'plink_1', status: 'paid', amount_paid: config.billing.amount, currency: 'INR', notes: { slug: 'upishop' }, payments: [{ payment_id: 'pay_1', status: 'captured' }] },
-    plink_2: { id: 'plink_2', status: 'paid', amount_paid: config.billing.amount, currency: 'INR', notes: { slug: 'upishop' }, payments: [{ payment_id: 'pay_2', status: 'captured' }] },
-    plink_low: { id: 'plink_low', status: 'paid', amount_paid: 100, currency: 'INR', notes: { slug: 'upishop' }, payments: [{ payment_id: 'pay_low', status: 'captured' }] },
-    plink_open: { id: 'plink_open', status: 'created', amount_paid: 0, currency: 'INR', notes: { slug: 'upishop' }, payments: [] },
+
+function mockFetch(routes) {
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    const headers = Object.fromEntries(Object.entries(init?.headers || {}).map(([k, v]) => [k.toLowerCase(), v]));
+    calls.push({ url: u, method: init?.method || 'GET', body: init?.body ? String(init.body) : '', headers });
+    const hit = routes.find(([k]) => u.includes(k));
+    const body = hit ? (typeof hit[1] === 'function' ? hit[1](u, init) : hit[1]) : { messages: [{ id: 'x' }] };
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
   };
-  const rz = withRazorpay({ '/payment_links/': (u) => links[u.split('/').pop()] });
+  return { calls, restore: () => (globalThis.fetch = realFetch) };
+}
+
+function withConfig(patch) {
+  const saved = Object.fromEntries(Object.keys(patch).map((k) => [k, { ...config[k] }]));
+  for (const [k, v] of Object.entries(patch)) Object.assign(config[k], v);
+  return () => {
+    for (const [k, v] of Object.entries(saved)) {
+      for (const key of Object.keys(config[k])) delete config[k][key];
+      Object.assign(config[k], v);
+    }
+  };
+}
+
+const said = (calls, text) => calls.filter((c) => c.url.includes('graph.facebook.com') && c.body.includes(text)).length;
+
+test('stripe one-time payments are verified with stripe, counted once and stack', async () => {
+  const sessions = {
+    cs_once: { id: 'cs_once', status: 'complete', payment_status: 'paid', mode: 'payment', amount_total: 900, currency: 'usd', payment_intent: 'pi_1', metadata: { slug: 'stripeshop', kind: 'service', plan: 'monthly' } },
+    cs_two: { id: 'cs_two', status: 'complete', payment_status: 'paid', mode: 'payment', amount_total: 500, currency: 'usd', payment_intent: 'pi_2', metadata: { slug: 'stripeshop', kind: 'service', plan: 'biweekly' } },
+    cs_low: { id: 'cs_low', status: 'complete', payment_status: 'paid', mode: 'payment', amount_total: 100, currency: 'usd', payment_intent: 'pi_low', metadata: { slug: 'stripeshop', kind: 'service', plan: 'monthly' } },
+    cs_open: { id: 'cs_open', status: 'open', payment_status: 'unpaid', mode: 'payment', amount_total: 900, currency: 'usd', metadata: { slug: 'stripeshop', kind: 'service', plan: 'monthly' } },
+  };
+  const net = mockFetch([['/checkout/sessions/', (u) => sessions[u.split('/').pop()]]]);
   try {
-    await db.sites.insertOne({ slug: 'upishop', ownerPhone: '919000000011', businessName: 'UPI Shop', status: 'trial', plan: 'trial', trialEndsAt: new Date(Date.now() + 3600e3) });
-    const event = (id) => ({ event: 'payment_link.paid', payload: { payment_link: { entity: { id } } } });
+    await db.sites.insertOne({ slug: 'stripeshop', ownerPhone: '919000000021', businessName: 'Stripe Shop', status: 'trial', plan: 'trial', trialEndsAt: new Date(Date.now() + 3600e3) });
+    const done = (id, ev) => billing.handleStripeEvent({ id: ev, type: 'checkout.session.completed', data: { object: { id } } });
+    await done('cs_open', 'evs0');
+    await done('cs_low', 'evs1');
+    assert.equal((await db.sites.findOne({ slug: 'stripeshop' })).status, 'trial');
 
-    await billing.handleRazorpayEvent(event('plink_open'), 'e0');
-    await billing.handleRazorpayEvent(event('plink_low'), 'e1');
-    assert.equal((await db.sites.findOne({ slug: 'upishop' })).status, 'trial');
-
-    await billing.handleRazorpayEvent(event('plink_1'), 'e2');
-    let site = await db.sites.findOne({ slug: 'upishop' });
+    await done('cs_once', 'evs2');
+    let site = await db.sites.findOne({ slug: 'stripeshop' });
     assert.equal(site.status, 'active');
-    assert.equal(site.plan, 'paid');
+    assert.equal(bucket(site), 'paying');
     const first = new Date(site.billing.paidUntil).getTime();
     assert.ok(Math.abs(first - (Date.now() + 30 * 864e5)) < 60e3);
-    assert.equal(billing.accessState(site), 'live');
-    assert.equal(bucket(site), 'paying');
 
-    await billing.handleRazorpayEvent(event('plink_1'), 'e3');
-    await billing.confirmPaymentLink('plink_1');
-    site = await db.sites.findOne({ slug: 'upishop' });
-    assert.equal(new Date(site.billing.paidUntil).getTime(), first);
+    await done('cs_once', 'evs3');
+    await billing.confirmCheckout('cs_once');
+    assert.equal(new Date((await db.sites.findOne({ slug: 'stripeshop' })).billing.paidUntil).getTime(), first);
 
-    await billing.handleRazorpayEvent(event('plink_2'), 'e4');
-    site = await db.sites.findOne({ slug: 'upishop' });
-    assert.ok(Math.abs(new Date(site.billing.paidUntil).getTime() - (first + 30 * 864e5)) < 5e3);
-    assert.equal(rz.calls.filter((c) => c.body.includes('Payment received')).length, 2);
-    assert.ok(await db.payments.findOne({ _id: 'pay_1' }));
-    assert.ok(!(await db.payments.findOne({ _id: 'pay_low' })));
+    await done('cs_two', 'evs4');
+    site = await db.sites.findOne({ slug: 'stripeshop' });
+    assert.ok(Math.abs(new Date(site.billing.paidUntil).getTime() - (first + 14 * 864e5)) < 5e3);
+    assert.equal(said(net.calls, 'Payment received'), 2);
+    assert.ok(await db.payments.findOne({ _id: 'pi_1' }));
   } finally {
-    rz.restore();
+    net.restore();
   }
 });
 
-test('payment links carry the price, the site and are reused while open', async () => {
-  const rz = withRazorpay({ '/payment_links': { id: 'plink_new', short_url: 'https://rzp.io/i/abc' }, '/subscriptions': { id: 'sub_new', short_url: 'https://rzp.io/i/sub' } });
+test('stripe autopay keeps a site live, a cancelled subscription stops at the paid date', async () => {
+  const end = Math.floor(Date.now() / 1000) + 14 * 86400;
+  const net = mockFetch([
+    ['/checkout/sessions/cs_sub', { id: 'cs_sub', status: 'complete', payment_status: 'paid', mode: 'subscription', subscription: 'sub_s1', metadata: { slug: 'autostripe' } }],
+    ['/subscriptions/sub_s1', { id: 'sub_s1', status: 'active', metadata: { slug: 'autostripe', plan: 'biweekly' }, items: { data: [{ current_period_end: end, price: { unit_amount: 500, currency: 'usd' } }] } }],
+    ['/subscriptions/sub_cheap', { id: 'sub_cheap', status: 'active', metadata: { slug: 'autostripe', plan: 'monthly' }, items: { data: [{ current_period_end: end, price: { unit_amount: 100, currency: 'usd' } }] } }],
+  ]);
   try {
-    await db.sites.insertOne({ slug: 'linkshop', ownerPhone: '919000000012', businessName: 'Link Shop', status: 'trial', plan: 'trial', trialEndsAt: new Date(Date.now() + 3600e3) });
-    let site = await db.sites.findOne({ slug: 'linkshop' });
-    assert.equal(await billing.createPayment(site, 'once'), 'https://rzp.io/i/abc');
-    const made = JSON.parse(rz.calls.find((c) => c.url.endsWith('/payment_links')).body);
-    assert.equal(made.amount, config.billing.amount);
-    assert.equal(made.currency, 'INR');
-    assert.equal(made.notes.slug, 'linkshop');
-    assert.equal(made.accept_partial, false);
-    site = await db.sites.findOne({ slug: 'linkshop' });
-    assert.equal(await billing.createPayment(site, 'once'), 'https://rzp.io/i/abc');
-    assert.equal(rz.calls.filter((c) => c.url.endsWith('/payment_links')).length, 1);
-    assert.equal(await billing.createPayment(site, 'auto'), 'https://rzp.io/i/sub');
-    assert.equal(JSON.parse(rz.calls.find((c) => c.url.endsWith('/subscriptions')).body).plan_id, 'plan_m');
-    assert.equal(billing.payMethods(), 'UPI, card or Apple Pay');
-  } finally {
-    rz.restore();
-  }
-});
+    await db.sites.insertOne({ slug: 'autostripe', ownerPhone: '919000000022', businessName: 'Auto Stripe', status: 'trial', plan: 'trial', trialEndsAt: new Date(Date.now() + 3600e3) });
+    await billing.handleStripeEvent({ id: 'eva0', type: 'invoice.paid', data: { object: { subscription: 'sub_cheap' } } });
+    assert.equal((await db.sites.findOne({ slug: 'autostripe' })).status, 'trial');
 
-test('autopay subscriptions keep a site live, a stopped mandate is reported', async () => {
-  const end = Math.floor(Date.now() / 1000) + 30 * 86400;
-  const subs = {
-    sub_ok: { id: 'sub_ok', plan_id: 'plan_m', status: 'active', current_end: end, notes: { slug: 'autoshop' } },
-    sub_bad: { id: 'sub_bad', plan_id: 'plan_cheap', status: 'active', current_end: end, notes: { slug: 'autoshop' } },
-  };
-  const rz = withRazorpay({ '/subscriptions/': (u) => subs[u.split('/').pop()] });
-  try {
-    await db.sites.insertOne({ slug: 'autoshop', ownerPhone: '919000000013', businessName: 'Auto Shop', status: 'trial', plan: 'trial', trialEndsAt: new Date(Date.now() + 3600e3) });
-    const ev = (name, id, pay) => ({ event: name, payload: { subscription: { entity: { id } }, ...(pay ? { payment: { entity: { id: pay } } } : {}) } });
-
-    await billing.handleRazorpayEvent(ev('subscription.activated', 'sub_bad'), 's0');
-    assert.equal((await db.sites.findOne({ slug: 'autoshop' })).status, 'trial');
-
-    await billing.handleRazorpayEvent(ev('subscription.activated', 'sub_ok', 'pay_a'), 's1');
-    await billing.handleRazorpayEvent(ev('subscription.charged', 'sub_ok', 'pay_a'), 's2');
-    let site = await db.sites.findOne({ slug: 'autoshop' });
-    assert.equal(site.status, 'active');
+    await billing.handleStripeEvent({ id: 'eva1', type: 'checkout.session.completed', data: { object: { id: 'cs_sub' } } });
+    await billing.handleStripeEvent({ id: 'eva2', type: 'invoice.paid', data: { object: { parent: { subscription_details: { subscription: 'sub_s1' } } } } });
+    let site = await db.sites.findOne({ slug: 'autostripe' });
     assert.equal(site.billing.autopay, true);
-    assert.equal(site.billing.subscriptionId, 'sub_ok');
+    assert.equal(site.billing.planId, 'biweekly');
     assert.equal(new Date(site.billing.paidUntil).getTime(), end * 1000 + 2 * 864e5);
-    assert.equal(rz.calls.filter((c) => c.body.includes('Autopay is on')).length, 1);
+    assert.equal(said(net.calls, 'Autopay payment received'), 1);
 
-    await billing.handleRazorpayEvent(ev('subscription.halted', 'sub_ok'), 's3');
-    site = await db.sites.findOne({ slug: 'autoshop' });
+    await billing.handleStripeEvent({ id: 'eva3', type: 'customer.subscription.updated', data: { object: { id: 'sub_s1', status: 'active', cancel_at_period_end: true } } });
+    site = await db.sites.findOne({ slug: 'autostripe' });
     assert.equal(site.billing.autopay, false);
     assert.equal(billing.accessState(site), 'live');
-    assert.ok(rz.calls.some((c) => c.body.includes('Autopay for')));
+    assert.equal(said(net.calls, 'Autopay for'), 1);
 
-    await billing.cancelSubscription(site);
-    assert.ok(!rz.calls.some((c) => c.url.endsWith('/cancel')));
-    assert.equal((await db.sites.findOne({ slug: 'autoshop' })).status, 'cancelled');
+    await db.sites.insertOne({ slug: 'legacyshop', ownerPhone: '919000000023', businessName: 'Legacy', status: 'active', plan: 'paid', billing: { subscriptionId: 'sub_old' } });
+    await billing.handleStripeEvent({ id: 'eva4', type: 'customer.subscription.deleted', data: { object: { id: 'sub_old', status: 'canceled' } } });
+    assert.equal(billing.accessState(await db.sites.findOne({ slug: 'legacyshop' })), 'cancelled');
   } finally {
-    rz.restore();
+    net.restore();
   }
 });
 
-test('paid months remind before they end and switch the site off after', async () => {
-  const rz = withRazorpay({});
+test('checkout links carry the plan, the price and autopay', async () => {
+  const net = mockFetch([['/checkout/sessions', { id: 'cs_new', url: 'https://checkout.stripe.com/c/pay/cs_new' }]]);
+  try {
+    const site = { _id: 'x1', slug: 'linkshop', ownerPhone: '919000000024', businessName: 'Link Shop' };
+    assert.equal(await billing.createPayment(site, { plan: 'monthly', auto: true }), 'https://checkout.stripe.com/c/pay/cs_new');
+    assert.equal(await billing.createPayment(site, { plan: 'biweekly' }), 'https://checkout.stripe.com/c/pay/cs_new');
+    const [auto, once] = net.calls.map((c) => new URLSearchParams(c.body));
+    assert.equal(auto.get('mode'), 'subscription');
+    assert.equal(auto.get('line_items[0][price_data][unit_amount]'), '900');
+    assert.equal(auto.get('line_items[0][price_data][recurring][interval]'), 'month');
+    assert.equal(auto.get('subscription_data[metadata][plan]'), 'monthly');
+    assert.equal(once.get('mode'), 'payment');
+    assert.equal(once.get('line_items[0][price_data][unit_amount]'), '500');
+    assert.equal(once.get('line_items[0][price_data][currency]'), 'usd');
+    assert.equal(once.get('metadata[slug]'), 'linkshop');
+    assert.equal(once.get('success_url'), `https://${config.rootDomain}/paid?session_id={CHECKOUT_SESSION_ID}`);
+    assert.equal(billing.payMethods(), 'card, Apple Pay or Google Pay');
+    assert.equal(priceLabel(), '$9 a month or $5 every 2 weeks');
+    await assert.rejects(billing.createPayment(site, { kind: 'domain' }));
+  } finally {
+    net.restore();
+  }
+});
+
+test('razorpay payments and autopay are confirmed with razorpay before they count', async () => {
+  const restore = withConfig({
+    billing: { provider: 'razorpay', currency: 'INR', monthly: 79900, biweekly: 0 },
+    razorpay: { keyId: 'rzp_test_k', keySecret: 'rzp_secret', webhookSecret: 'rzp_hook', plans: { monthly: 'plan_m', biweekly: '' } },
+  });
+  const end = Math.floor(Date.now() / 1000) + 30 * 86400;
+  const net = mockFetch([
+    ['/payment_links/plink_ok', { id: 'plink_ok', status: 'paid', amount_paid: 79900, currency: 'INR', notes: { slug: 'upishop', kind: 'service', plan: 'monthly' }, payments: [{ payment_id: 'pay_r1', status: 'captured' }] }],
+    ['/payment_links/plink_low', { id: 'plink_low', status: 'paid', amount_paid: 100, currency: 'INR', notes: { slug: 'upishop', plan: 'monthly' }, payments: [{ payment_id: 'pay_r0', status: 'captured' }] }],
+    ['/subscriptions/sub_ok', { id: 'sub_ok', plan_id: 'plan_m', status: 'active', current_end: end, notes: { slug: 'upishop' } }],
+    ['/subscriptions/sub_bad', { id: 'sub_bad', plan_id: 'plan_x', status: 'active', current_end: end, notes: { slug: 'upishop' } }],
+    ['/payment_links', { id: 'plink_new', short_url: 'https://rzp.io/i/abc' }],
+  ]);
+  try {
+    assert.equal(billing.provider(), 'razorpay');
+    assert.equal(billing.payMethods(), 'UPI, card or Apple Pay');
+    await db.sites.insertOne({ slug: 'upishop', ownerPhone: '919000000025', businessName: 'UPI Shop', status: 'trial', plan: 'trial', trialEndsAt: new Date(Date.now() + 3600e3) });
+    const link = (id, ev) => billing.handleRazorpayEvent({ event: 'payment_link.paid', payload: { payment_link: { entity: { id } } } }, ev);
+    await link('plink_low', 'r0');
+    await billing.handleRazorpayEvent({ event: 'subscription.activated', payload: { subscription: { entity: { id: 'sub_bad' } } } }, 'r1');
+    assert.equal((await db.sites.findOne({ slug: 'upishop' })).status, 'trial');
+
+    await link('plink_ok', 'r2');
+    await link('plink_ok', 'r3');
+    let site = await db.sites.findOne({ slug: 'upishop' });
+    assert.equal(site.status, 'active');
+    assert.ok(Math.abs(new Date(site.billing.paidUntil).getTime() - (Date.now() + 30 * 864e5)) < 60e3);
+
+    await billing.handleRazorpayEvent({ event: 'subscription.charged', payload: { subscription: { entity: { id: 'sub_ok' } }, payment: { entity: { id: 'pay_r2' } } } }, 'r4');
+    site = await db.sites.findOne({ slug: 'upishop' });
+    assert.equal(site.billing.autopay, true);
+    assert.equal(site.billing.provider, 'razorpay');
+    await billing.handleRazorpayEvent({ event: 'subscription.halted', payload: { subscription: { entity: { id: 'sub_ok' } } } }, 'r5');
+    assert.equal((await db.sites.findOne({ slug: 'upishop' })).billing.autopay, false);
+
+    assert.equal(await billing.createPayment(site, { plan: 'monthly' }), 'https://rzp.io/i/abc');
+    const made = JSON.parse(net.calls.find((c) => c.url.endsWith('/payment_links')).body);
+    assert.equal(made.amount, 79900);
+    assert.equal(made.currency, 'INR');
+    assert.equal(made.notes.slug, 'upishop');
+  } finally {
+    net.restore();
+    restore();
+  }
+});
+
+test('paid time reminds before it ends and switches the site off after', async () => {
+  const net = mockFetch([]);
   try {
     const now = new Date();
-    await db.sites.insertOne({ slug: 'endsoon', ownerPhone: '919000000014', businessName: 'Ends Soon', status: 'active', plan: 'paid', billing: { provider: 'razorpay', paidUntil: new Date(now.getTime() + 2 * 864e5) } });
-    await db.sites.insertOne({ slug: 'autorenew', ownerPhone: '919000000015', businessName: 'Auto', status: 'active', plan: 'paid', billing: { provider: 'razorpay', autopay: true, paidUntil: new Date(now.getTime() + 2 * 864e5) } });
-    await db.sites.insertOne({ slug: 'lapsed', ownerPhone: '919000000016', businessName: 'Lapsed', status: 'active', plan: 'paid', billing: { provider: 'razorpay', paidUntil: new Date(now.getTime() - 60e3) } });
+    await db.sites.insertOne({ slug: 'endsoon', ownerPhone: '919000000026', businessName: 'Ends Soon', status: 'active', plan: 'paid', billing: { paidUntil: new Date(now.getTime() + 2 * 864e5) } });
+    await db.sites.insertOne({ slug: 'autorenew', ownerPhone: '919000000027', businessName: 'Auto', status: 'active', plan: 'paid', billing: { autopay: true, paidUntil: new Date(now.getTime() + 2 * 864e5) } });
+    await db.sites.insertOne({ slug: 'lapsed', ownerPhone: '919000000028', businessName: 'Lapsed', status: 'active', plan: 'paid', billing: { paidUntil: new Date(now.getTime() - 60e3) } });
     assert.equal(billing.accessState(await db.sites.findOne({ slug: 'lapsed' })), 'expired');
     await billing.sweepPlans(now);
     assert.ok((await db.sites.findOne({ slug: 'endsoon' })).billing.renewReminderAt);
     assert.ok(!(await db.sites.findOne({ slug: 'autorenew' })).billing.renewReminderAt);
     assert.equal((await db.sites.findOne({ slug: 'lapsed' })).status, 'expired');
     assert.equal(bucket(await db.sites.findOne({ slug: 'lapsed' })), 'unpaid');
-    assert.ok(rz.calls.some((c) => c.body.includes('ends on')));
-    assert.ok(rz.calls.some((c) => c.body.includes('paid month has ended')));
+    assert.equal(said(net.calls, 'ends on'), 1);
+    assert.equal(said(net.calls, 'paid time has ended'), 1);
   } finally {
-    rz.restore();
+    net.restore();
+  }
+});
+
+test('domain ideas fit the business and prices include the margin', () => {
+  const ideas = shop.domainIdeas({ businessName: 'Guru Kirpa Sweets', city: 'Ludhiana', category: 'sweet shop', industry: 'bakery' });
+  assert.ok(ideas.includes('gurukirpa.com'));
+  assert.ok(ideas.includes('gurukirpa.in'));
+  assert.ok(ideas.includes('gurukirpaludhiana.com'));
+  assert.ok(ideas.some((d) => d.endsWith('.shop') || d.endsWith('.cafe')));
+  assert.ok(ideas.length <= 25);
+  assert.equal(ideas[0], 'gurukirpa.com');
+  assert.equal(shop.chargeFor(1073), 1600);
+});
+
+test('a paid domain is bought once, pointed at the site and renewed on time', async () => {
+  const restore = withConfig({
+    porkbun: { apiKey: 'pk1_x', secretKey: 'sk1_x' },
+    render: { apiKey: 'rnd', serviceId: 'srv-1', hostname: 'site60.onrender.com' },
+  });
+  const info = { avail: 'yes', price: '10.73', premium: 'no', additional: { renewal: { price: '10.73' } } };
+  let order;
+  const net = mockFetch([
+    ['/domain/checkDomain/', { status: 'SUCCESS', response: info }],
+    ['/domain/checkDomain', { status: 'SUCCESS', domains: { 'gurukirpa.com': { avail: 'no' }, 'gurukirpa.in': info, 'gurukirpasweets.com': { ...info, premium: 'yes' } } }],
+    ['/domain/create/', { status: 'SUCCESS', cost: 1073 }],
+    ['/domain/renew/', { status: 'SUCCESS', expirationDate: '2028-10-19' }],
+    ['/dns/retrieve/', { status: 'SUCCESS', records: [{ id: '11', name: 'gurukirpa.in', type: 'ALIAS', content: 'pixie.porkbun.com' }, { id: '12', name: 'gurukirpa.in', type: 'MX', content: 'mx' }] }],
+    ['api.porkbun.com', { status: 'SUCCESS' }],
+    ['/checkout/sessions/', () => ({ id: 'cs_dom', status: 'complete', payment_status: 'paid', mode: 'payment', amount_total: order.charge, currency: 'usd', payment_intent: 'pi_dom', metadata: { slug: 'domshop', kind: 'domain', domain: order.domain, orderId: order.id } })],
+    ['api.render.com', {}],
+  ]);
+  try {
+    await db.sites.insertOne({ slug: 'domshop', ownerPhone: '919000000029', businessName: 'Guru Kirpa Sweets', city: 'Ludhiana', category: 'sweet shop', industry: 'bakery', status: 'active', plan: 'paid', billing: { paidUntil: new Date(Date.now() + 20 * 864e5) } });
+    let site = await db.sites.findOne({ slug: 'domshop' });
+    assert.ok(shop.domainShopEnabled());
+    const found = await shop.findDomains(site);
+    assert.deepEqual(found.map((d) => d.domain), ['gurukirpa.in']);
+
+    order = await shop.quoteDomain(site, 'gurukirpa.in');
+    assert.equal(order.charge, 1600);
+    await billing.handleStripeEvent({ id: 'evd1', type: 'checkout.session.completed', data: { object: { id: 'cs_dom' } } });
+    await billing.handleStripeEvent({ id: 'evd2', type: 'checkout.session.completed', data: { object: { id: 'cs_dom' } } });
+    const creates = net.calls.filter((c) => c.url.includes('/domain/create/'));
+    assert.equal(creates.length, 1);
+    assert.equal(JSON.parse(creates[0].body).cost, 1073);
+    assert.equal(creates[0].headers['idempotency-key'], 'register-pi_dom');
+    assert.ok(net.calls.some((c) => c.url.endsWith('/dns/delete/gurukirpa.in/11')));
+    assert.ok(!net.calls.some((c) => c.url.endsWith('/dns/delete/gurukirpa.in/12')));
+    const records = net.calls.filter((c) => c.url.includes('/dns/create/')).map((c) => JSON.parse(c.body));
+    assert.deepEqual(records.map((r) => [r.name, r.type, r.content]), [['', 'A', config.render.apexIp], ['www', 'CNAME', 'site60.onrender.com']]);
+    site = await db.sites.findOne({ slug: 'domshop' });
+    assert.equal(site.domain.name, 'gurukirpa.in');
+    assert.equal(site.pendingDomain.name, 'gurukirpa.in');
+    assert.ok(!site.domainOrder);
+    assert.equal(said(net.calls, 'is registered'), 1);
+
+    await db.sites.updateOne({ slug: 'domshop' }, { $set: { 'domain.expiresAt': new Date(Date.now() + 5 * 864e5), customDomain: 'gurukirpa.in' } });
+    await shop.sweepDomainRenewals();
+    await shop.sweepDomainRenewals();
+    assert.equal(said(net.calls, 'expires on'), 1);
+    site = await db.sites.findOne({ slug: 'domshop' });
+    assert.equal(site.domain.reminded, 7);
+
+    order = await shop.quoteRenewal(site);
+    await billing.handleStripeEvent({ id: 'evd3', type: 'checkout.session.completed', data: { object: { id: 'cs_dom2' } } });
+    assert.equal(net.calls.filter((c) => c.url.includes('/domain/create/')).length, 1);
+    await db.payments.deleteOne({ _id: 'pi_dom' });
+    await billing.confirmCheckout('cs_dom');
+    site = await db.sites.findOne({ slug: 'domshop' });
+    assert.equal(net.calls.filter((c) => c.url.includes('/domain/renew/')).length, 1);
+    assert.equal(new Date(site.domain.expiresAt).toISOString().slice(0, 10), '2028-10-19');
+
+    await db.sites.updateOne({ slug: 'domshop' }, { $set: { 'domain.expiresAt': new Date(Date.now() - 1000) } });
+    await shop.sweepDomainRenewals();
+    site = await db.sites.findOne({ slug: 'domshop' });
+    assert.equal(site.domain.expired, true);
+    assert.ok(!site.customDomain);
+    assert.equal(said(net.calls, 'has expired'), 1);
+  } finally {
+    net.restore();
+    restore();
+  }
+});
+
+test('a domain payment that does not match the order buys nothing', async () => {
+  const restore = withConfig({ porkbun: { apiKey: 'pk1_x', secretKey: 'sk1_x' }, render: { apiKey: 'rnd', serviceId: 'srv-1', hostname: 'h' } });
+  const net = mockFetch([['api.porkbun.com', { status: 'SUCCESS', response: { avail: 'yes', price: '10.73', additional: { renewal: { price: '10.73' } } } }]]);
+  try {
+    await db.sites.insertOne({ slug: 'domshop2', ownerPhone: '919000000030', businessName: 'Shop Two', status: 'active', plan: 'paid' });
+    const site = await db.sites.findOne({ slug: 'domshop2' });
+    const order = await shop.quoteDomain(site, 'shoptwo.com');
+    await shop.domainPaid(site, { id: 'p1', orderId: 'other', amount: order.charge });
+    await shop.domainPaid(site, { id: 'p2', orderId: order.id, amount: order.charge - 100 });
+    assert.ok(!net.calls.some((c) => c.url.includes('/domain/create/')));
+    assert.ok(!(await db.sites.findOne({ slug: 'domshop2' })).domain);
+  } finally {
+    net.restore();
+    restore();
+  }
+});
+
+test('owners pick a domain on WhatsApp and get a payment link', async () => {
+  const restore = withConfig({ porkbun: { apiKey: 'pk1_x', secretKey: 'sk1_x' }, render: { apiKey: 'rnd', serviceId: 'srv-1', hostname: 'h' } });
+  const info = { avail: 'yes', price: '10.73', premium: 'no', additional: { renewal: { price: '10.73' } } };
+  const net = mockFetch([
+    ['/domain/checkDomain/', { status: 'SUCCESS', response: info }],
+    ['/domain/checkDomain', { status: 'SUCCESS', domains: { 'dhillonauto.com': info, 'dhillonauto.in': info } }],
+  ]);
+  const { handleMessage } = await import('../src/bot.js');
+  const from = '919000000031';
+  const say = (m) => handleMessage({ id: crypto.randomUUID(), from, name: 'D', type: 'text', text: '', ...m });
+  try {
+    await db.sites.insertOne({ slug: 'dhillonauto', ownerPhone: from, businessName: 'Dhillon Auto', city: 'Jalandhar', category: 'car repair', status: 'active', plan: 'paid', billing: { paidUntil: new Date(Date.now() + 20 * 864e5) } });
+    await db.sessions.insertOne({ _id: from, state: 'LIVE', slug: 'dhillonauto', draft: {} });
+    await say({ text: 'domain' });
+    assert.ok(net.calls.at(-1).body.includes('domain_find'));
+    await say({ type: 'interactive', buttonId: 'domain_find' });
+    assert.ok(net.calls.some((c) => c.body.includes('1. *dhillonauto.com*')));
+    assert.equal((await db.sessions.findOne({ _id: from })).state, 'PICK_DOMAIN');
+    await say({ text: '2' });
+    const offer = net.calls.at(-1).body;
+    assert.ok(offer.includes('dhillonauto.in'));
+    assert.ok(offer.includes('/pay/dhillonauto/domain?k='));
+    assert.equal((await db.sites.findOne({ slug: 'dhillonauto' })).domainOrder.domain, 'dhillonauto.in');
+    assert.equal((await db.sessions.findOne({ _id: from })).state, 'LIVE');
+  } finally {
+    net.restore();
+    restore();
   }
 });

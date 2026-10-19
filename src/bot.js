@@ -31,6 +31,8 @@ import {
   shortDate,
 } from './billing.js';
 import { domainsEnabled, normalizeDomain, connectDomain } from './domains.js';
+import { domainShopEnabled, findDomains, quoteDomain, domainPaid, domainPayLink, offerText } from './domainshop.js';
+import { money } from './plans.js';
 import { t, LANGS, WELCOME, LANG_BUTTONS } from './i18n.js';
 import { formatPhone } from './render.js';
 import { isDisallowedText } from './moderation.js';
@@ -44,6 +46,8 @@ const DELETE = new Set(['delete', 'delete my site', 'delete site', 'delete websi
 const CHAT = new Set(['hi', 'hii', 'hello', 'hey', 'menu', 'help', 'ok', 'okay', 'thanks', 'thank you', 'namaste', 'sat sri akal', 'start']);
 const PAY = new Set(['pay', 'subscribe', 'activate', 'reactivate', 'upgrade', 'buy', 'plan', 'keep it', 'keep', 'keep my site']);
 const ADMIN_CMD = /^(activate|extend|pause|status)\s+([a-z0-9-]{3,30})(?:\s+(\d+(?:\.\d+)?))?$/;
+const DOMAIN_MENU = new Set(['domain', 'domains', 'get domain', 'buy domain', 'own domain', 'my domain', 'new domain', 'renew domain', 'website address', 'get a domain', 'domain_menu']);
+const DOMAIN_CHECK = /^(?:buy|check|get)\s+(?:domain\s+)?(\S+\.\S+)$/i;
 const CANCEL = new Set(['cancel', 'cancel plan', 'cancel my plan', 'cancel subscription', 'cancel my subscription', 'unsubscribe']);
 const LANG_WORDS = { english: 'en', hindi: 'hi', 'हिंदी': 'hi', punjabi: 'pa', 'ਪੰਜਾਬੀ': 'pa' };
 const HISTORY = 5;
@@ -432,6 +436,13 @@ const HANDLERS = {
 
     if (cmd === 'leads' || cmd === 'enquiries') return showLeads(s, site);
 
+    if (DOMAIN_MENU.has(cmd)) return domainMenu(s, site, cmd === 'renew domain');
+    if (cmd === 'domain_find') return showDomainIdeas(s, site);
+    if (cmd === 'domain_have') return sendText(s._id, 'Great! Send it like this and I will guide you: *connect domain yourname.com*');
+    if (cmd === 'domain_skip') return sendText(s._id, `👍 You'll keep ${siteUrl(site.slug)}. Send *domain* anytime to get your own.`);
+    const checkMatch = text.match(DOMAIN_CHECK);
+    if (checkMatch) return offerDomain(s, site, checkMatch[1]);
+
     const domainMatch = text.match(/^(?:connect\s+)?(?:my\s+)?domain\s*[:\-]?\s*(\S+)$/i);
     if (domainMatch) return handleDomain(s, site, domainMatch[1]);
 
@@ -519,6 +530,19 @@ const HANDLERS = {
     if (!site) return HANDLERS.NEW(s);
     if (cmd === 'apply_edit' && request) return chatEdit(s, site, request);
     if (cmd === 'cancel_edit') return sendText(s._id, 'OK, nothing changed. Type or send a voice note when you are ready.');
+    return HANDLERS.LIVE(s, msg, text, cmd);
+  },
+
+  async PICK_DOMAIN(s, msg, text, cmd) {
+    const site = await ownedSite(s);
+    const choices = s.draft?.domains || [];
+    s.state = site ? 'LIVE' : 'NEW';
+    if (!site) return HANDLERS.NEW(s);
+    const n = Number(cmd);
+    if (Number.isInteger(n) && n >= 1 && n <= choices.length) return offerDomain(s, site, choices[n - 1]);
+    const typed = normalizeDomain(text);
+    if (typed && /\./.test(text)) return offerDomain(s, site, typed);
+    s.draft = {};
     return HANDLERS.LIVE(s, msg, text, cmd);
   },
 
@@ -700,7 +724,7 @@ async function publish(s) {
       (trial
         ? `⏳ It's *free for ${config.billing.trialHours} hours*. After that it goes offline automatically.\n` +
           (billingEnabled()
-            ? `To keep it online, it's *${priceLabel()}*. Pay by ${payMethods()}${autopayAvailable() ? ', one month at a time or with autopay' : ''}:\n${payLink(d.slug)}\n\n`
+            ? `To keep it online: *${priceLabel()}*. Pay by ${payMethods()}${autopayAvailable() ? ', with autopay or one period at a time' : ''}:\n${payLink(d.slug)}\n\n`
             : `To keep it online, just reply *keep it* here.\n\n`)
         : '') +
       `ℹ️ Your number ${formatPhone(s._id)} is shown for the WhatsApp and Call buttons. To show a different number, send: *number 9876543210*\n` +
@@ -844,16 +868,16 @@ async function sendPayLink(s, site) {
   }
   if (site.plan === 'paid' && accessState(site) === 'live') {
     if (site.billing?.autopay || !site.billing?.paidUntil) {
-      return sendText(s._id, `✅ Your plan is active${site.billing?.autopay ? ' and autopay renews it every month' : ''}. To cancel, send *cancel plan*.`);
+      return sendText(s._id, `✅ Your plan is active${site.billing?.autopay ? ' and autopay renews it by itself' : ''}. To cancel, send *cancel plan*.`);
     }
     return sendText(
       s._id,
-      `✅ Paid until *${shortDate(site.billing.paidUntil)}*. To add another month now (${priceLabel()}):\n${payLink(site.slug)}`
+      `✅ Paid until *${shortDate(site.billing.paidUntil)}*. To add more time now (${priceLabel()}):\n${payLink(site.slug)}`
     );
   }
   return sendText(
     s._id,
-    `💳 Keep ${siteUrl(site.slug)} online for *${priceLabel()}*. Pay by ${payMethods()}${autopayAvailable() ? ', one month at a time or with autopay' : ''}:\n${payLink(site.slug)}`
+    `💳 Keep ${siteUrl(site.slug)} online: *${priceLabel()}*. Pay by ${payMethods()}${autopayAvailable() ? ', with autopay or one period at a time' : ''}:\n${payLink(site.slug)}`
   );
 }
 
@@ -861,7 +885,7 @@ function askCancel(s, site) {
   if (site.plan !== 'paid' || accessState(site) !== 'live') {
     return sendText(s._id, "You don't have an active plan to cancel.");
   }
-  if (site.billing?.provider === 'razorpay' && !site.billing.autopay && site.billing.paidUntil) {
+  if (!site.billing?.autopay && site.billing?.paidUntil) {
     return sendText(
       s._id,
       `You're not on autopay, so nothing more will be charged. ${siteUrl(site.slug)} simply goes offline on *${shortDate(site.billing.paidUntil)}* unless you pay again.\n\nTo remove it now, send *delete my site*.`
@@ -876,6 +900,86 @@ function askCancel(s, site) {
       { id: 'keep_plan', title: 'No, keep it' },
     ]
   );
+}
+
+const isAdminPhone = (phone) => config.adminNumbers.includes(String(phone));
+
+function domainAllowed(s, site) {
+  return isAdminPhone(s._id) || (site.plan === 'paid' && accessState(site) === 'live');
+}
+
+async function domainMenu(s, site, renewing) {
+  if (!domainShopEnabled()) {
+    return sendText(s._id, 'To use your own domain, send: *connect domain yourname.com*');
+  }
+  if (site.domain?.name && !site.domain.expired && !renewing) {
+    return sendText(
+      s._id,
+      `🌐 Your domain is *${site.domain.name}*, paid until *${shortDate(site.domain.expiresAt)}*. I'll remind you before it expires. To renew early: ${domainPayLink(site.slug)}`
+    );
+  }
+  if (site.domain?.name) return sendText(s._id, `🌐 Renew *${site.domain.name}* for 1 year here:\n${domainPayLink(site.slug)}`);
+  return sendButtons(
+    s._id,
+    `🌐 Want your own web address instead of ${site.slug}.${ROOT}?\n\nPick a new one and I'll set everything up, or connect one you already own.`,
+    [
+      { id: 'domain_find', title: 'Find a new domain' },
+      { id: 'domain_have', title: 'I have a domain' },
+      { id: 'domain_skip', title: 'Keep free address' },
+    ]
+  );
+}
+
+async function showDomainIdeas(s, site) {
+  if (!domainShopEnabled()) return domainMenu(s, site);
+  if (!domainAllowed(s, site)) {
+    return sendText(s._id, `🌐 Your own domain comes with a paid plan. Keep your site online first, then send *domain* again:\n${payLink(site.slug)}`);
+  }
+  await sendText(s._id, '🔎 Checking which names are free...');
+  let list = [];
+  try {
+    list = await findDomains(site);
+  } catch (err) {
+    log.error('domain search failed', err);
+    return sendText(s._id, "I couldn't check domains right now. Please try again in a minute.");
+  }
+  if (!list.length) {
+    return sendText(s._id, 'I could not find a free name that fits. Type one you like, for example: *check mybusiness.com*');
+  }
+  s.state = 'PICK_DOMAIN';
+  s.draft = { domains: list.map((d) => d.domain) };
+  return sendText(
+    s._id,
+    `🌐 These are free right now (price for the first year):\n\n${list.map((d, i) => `${i + 1}. *${d.domain}* · ${money(d.charge)}`).join('\n')}\n\n` +
+      'Reply with the number you want, or type another name, for example: *mybusiness.com*'
+  );
+}
+
+async function offerDomain(s, site, input) {
+  const domain = normalizeDomain(input);
+  if (!domain) return sendText(s._id, 'That name looks wrong. Send it like: *check mybusiness.com*');
+  if (!domainShopEnabled()) return handleDomain(s, site, domain);
+  if (!domainAllowed(s, site)) {
+    return sendText(s._id, `🌐 Your own domain comes with a paid plan. Keep your site online first, then send *domain* again:\n${payLink(site.slug)}`);
+  }
+  s.state = 'LIVE';
+  s.draft = {};
+  let order = null;
+  try {
+    order = await quoteDomain(site, domain);
+  } catch (err) {
+    log.error('domain quote failed', err, { domain });
+    return sendText(s._id, "I couldn't check that name right now. Please try again in a minute.");
+  }
+  if (!order) {
+    return sendText(s._id, `😕 *${domain}* is taken or not available. Send *domain* to see other names, or type another one.`);
+  }
+  if (isAdminPhone(s._id)) {
+    await sendText(s._id, `🛠 Admin: registering *${domain}* now...`);
+    await domainPaid(site, { id: `admin-${order.id}`, orderId: order.id, amount: order.charge, domain });
+    return;
+  }
+  return sendText(s._id, `${offerText(order)}\n\nPay by ${payMethods()} and I'll buy it and connect it for you (this price is held for 1 hour):\n${domainPayLink(site.slug)}`);
 }
 
 async function handleDomain(s, site, input) {
@@ -945,7 +1049,7 @@ function liveMenu(s, site) {
   if (state === 'expired' || state === 'cancelled') {
     return sendText(
       s._id,
-      `⏸ Your website ${url} is offline because ${state === 'cancelled' ? 'the plan was cancelled' : site.plan === 'paid' ? 'the paid month ended' : 'the free trial ended'}.\n\n` +
+      `⏸ Your website ${url} is offline because ${state === 'cancelled' ? 'the plan was cancelled' : site.plan === 'paid' ? 'the paid time ended' : 'the free trial ended'}.\n\n` +
         (billingEnabled() ? `Bring it back instantly for ${priceLabel()}, pay by ${payMethods()}:\n${payLink(s.slug)}` : 'Reply *keep it* and our team will bring it back for you.')
     );
   }
@@ -956,7 +1060,7 @@ function liveMenu(s, site) {
   return sendButtons(
     s._id,
     `Your website: ${url}\n\n${trialNote}To change anything, type it or send a voice note, for example _"make the colours dark blue"_.\n\n` +
-      `More: *new design*, *undo*, *leads*, *connect domain mybusiness.com*, *email you@example.com*, *number 98xxxxxxxx*, *pay*, *cancel plan*, *delete my site*`,
+      `More: *new design*, *undo*, *leads*, *domain*, *email you@example.com*, *number 98xxxxxxxx*, *pay*, *cancel plan*, *delete my site*`,
     [
       { id: 'edit_about', title: 'Edit details' },
       { id: 'edit_photos', title: 'Change photos' },

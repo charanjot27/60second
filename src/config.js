@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 dotenv.config({ quiet: true });
 
 const env = process.env;
+const cents = (value, fallback) => Math.round((value === undefined || value === '' ? fallback : Number(value) || 0) * 100);
 const rootDomain = (env.ROOT_DOMAIN || 'site60.in').toLowerCase();
 
 export const config = {
@@ -52,21 +53,28 @@ export const config = {
     whisperModel: env.CF_WHISPER_MODEL || '@cf/openai/whisper-large-v3-turbo',
   },
   billing: {
+    provider: (env.PAYMENTS || '').toLowerCase(),
     stripeSecret: env.STRIPE_SECRET_KEY || '',
     webhookSecret: env.STRIPE_WEBHOOK_SECRET || '',
-    priceId: env.STRIPE_PRICE_ID || '',
     trialHours: Number(env.TRIAL_HOURS) || 24,
     trialsWithoutPayment: /^(on|true|yes|1)$/i.test(env.TRIALS || ''),
     priceLabel: env.PRICE_LABEL || '',
-    amount: Math.round((Number(env.PRICE_AMOUNT) || 799) * 100),
-    currency: (env.PRICE_CURRENCY || 'INR').toUpperCase(),
-    periodDays: Number(env.PLAN_DAYS) || 30,
+    currency: (env.PRICE_CURRENCY || 'USD').toUpperCase(),
+    monthly: cents(env.PRICE_MONTHLY, 9),
+    biweekly: cents(env.PRICE_BIWEEKLY, 5),
+    domainMargin: cents(env.DOMAIN_MARGIN, 5),
+    usdRate: Number(env.USD_RATE) || 1,
+    domainMaxUsd: Number(env.DOMAIN_MAX_USD) || 25,
   },
   razorpay: {
     keyId: env.RAZORPAY_KEY_ID || '',
     keySecret: env.RAZORPAY_KEY_SECRET || '',
     webhookSecret: env.RAZORPAY_WEBHOOK_SECRET || '',
-    planId: env.RAZORPAY_PLAN_ID || '',
+    plans: { monthly: env.RAZORPAY_PLAN_ID || '', biweekly: env.RAZORPAY_PLAN_BIWEEKLY_ID || '' },
+  },
+  porkbun: {
+    apiKey: env.PORKBUN_API_KEY || '',
+    secretKey: env.PORKBUN_SECRET_KEY || '',
   },
   render: {
     apiKey: env.RENDER_API_KEY || '',
