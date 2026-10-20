@@ -893,6 +893,14 @@ async function liveText(s, site, text) {
     return sendText(s._id, route.answer);
   }
   if (route?.intent === 'images' && site.page?.body) return redrawOnly(s, site, route);
+  if (!route) {
+    s.state = 'CONFIRM_EDIT';
+    s.draft = { request: text };
+    return sendButtons(s._id, `Should I change your website like this?\n\n_“${text.slice(0, 500)}”_`, [
+      { id: 'apply_edit', title: 'Yes, change it ✅' },
+      { id: 'cancel_edit', title: 'No' },
+    ]);
+  }
   return chatEdit(s, site, text);
 }
 
