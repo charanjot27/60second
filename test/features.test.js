@@ -1152,3 +1152,47 @@ test('truck and transport businesses get their own class and action', async () =
   assert.equal(industryAction(truck).label, 'Get a Transport Quote');
   assert.equal(classifyIndustry({ businessName: 'Raj Car Care', category: 'car garage' }).id, 'automotive');
 });
+
+test('questions and small talk go to the small model, Opus is kept for website work', async () => {
+  const { handleMessage } = await import('../src/bot.js');
+  const { extractBusiness } = await import('../src/ai.js');
+  const models = [];
+  const sent = [];
+  let router = { intent: 'question', answer: 'It is $9 a month. Send *pay* to keep it online.' };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    if (u.includes('api.anthropic.com')) {
+      const body = JSON.parse(init.body);
+      models.push(body.model);
+      if (/haiku/.test(body.model) && /sort WhatsApp messages/.test(JSON.stringify(body.system))) return claudeStream(JSON.stringify(router));
+      if (/haiku/.test(body.model)) return claudeStream(JSON.stringify({ allowed: true, businessName: 'Tea Point', category: 'Tea stall', services: ['Tea'] }));
+      return claudeStream('===SUMMARY===\nDone\n===DATA===\n{}\n===IMAGES===\n[]\n===META===\nNONE\n===END===');
+    }
+    if (u.includes('graph.facebook.com')) sent.push(String(init?.body || ''));
+    return new Response('{"messages":[{"id":"x"}]}', { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const from = '919000000050';
+  const say = (text) => handleMessage({ id: crypto.randomUUID(), from, name: 'Q', type: 'text', text });
+  try {
+    const info = await extractBusiness('Tea Point near bus stand, we sell tea and snacks');
+    assert.equal(info.businessName, 'Tea Point');
+    assert.ok(models.every((m) => /haiku/.test(m)));
+
+    await db.sites.insertOne({ slug: 'teapoint', ownerPhone: from, businessName: 'Tea Point', status: 'active', plan: 'free', page: { body: '<p>x</p>', css: '' } });
+    await db.sessions.insertOne({ _id: from, state: 'LIVE', slug: 'teapoint', draft: {} });
+    models.length = 0;
+    await say('how much does it cost per month?');
+    assert.ok(sent.at(-1).includes('$9 a month'));
+    router = { intent: 'chat', answer: 'You are welcome! 😊' };
+    await say('thank you so much brother');
+    assert.ok(sent.at(-1).includes('You are welcome'));
+    assert.ok(models.length === 2 && models.every((m) => /haiku/.test(m)));
+
+    router = { intent: 'change', answer: '' };
+    await say('make the colours warmer please');
+    assert.ok(models.some((m) => /opus/.test(m)));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

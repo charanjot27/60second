@@ -13,6 +13,7 @@ import { sourceSiteImages } from './photos.js';
 import { classifyIndustry, industryAction } from './industry.js';
 import { inspectPhotos, arrangeOwnPhotos } from './assets.js';
 import { callClaudeRaw, claudeEnabled } from './claude.js';
+import { cheapEnabled, routeMessage } from './assistant.js';
 import { createArtDirection, generateSitePage, editSite } from './generate.js';
 import { designMemory, recordDesign, markOutcome, noteRevision } from './memory.js';
 import { transcribe } from './voice.js';
@@ -507,7 +508,7 @@ const HANDLERS = {
     }
 
     if (msg.type === 'text' && !CHAT.has(cmd) && text.length >= 6 && /\s/.test(text)) {
-      return chatEdit(s, site, text);
+      return liveText(s, site, text);
     }
 
     return liveMenu(s, site);
@@ -803,6 +804,63 @@ async function undoEdit(s, site) {
   return applyEdit(s, fields, '↩️ Previous version restored');
 }
 
+function routeContext(site) {
+  return {
+    business: site.businessName,
+    website: site.customDomain ? `https://${site.customDomain}` : siteUrl(site.slug),
+    status: accessState(site),
+    trialEnds: site.trialEndsAt || null,
+    paidUntil: site.billing?.paidUntil || null,
+    price: billingEnabled() ? priceLabel() : 'free while we are in demo',
+    payment: billingEnabled() ? `send "pay" for the payment link (${payMethods()})` : 'reply "keep it" and the team activates it',
+    commands: 'pay, cancel plan, domain, connect domain name.com, leads, new design, undo, number 98xxxxxxxx, email you@example.com, delete my site; share a location pin to add a map; type or voice-note any change',
+    pictures: (site.aiImages || []).map((x, i) => ({ slot: (Number.isInteger(x.slot) ? x.slot : i) + 1, brief: String(x.prompt || '').slice(0, 200) })),
+  };
+}
+
+async function liveText(s, site, text) {
+  let route = null;
+  if (cheapEnabled()) {
+    route = await routeMessage(text, routeContext(site)).catch((err) => {
+      log.warn('message routing failed', { error: err.message });
+      return null;
+    });
+  }
+  if (route && (route.intent === 'question' || route.intent === 'chat') && route.answer) {
+    track(s._id, 'answered', { intent: route.intent });
+    return sendText(s._id, route.answer);
+  }
+  if (route?.intent === 'images' && site.page?.body) return redrawOnly(s, site, route);
+  return chatEdit(s, site, text);
+}
+
+async function redrawImages(site, images, ownerPhone) {
+  const aiImages = (site.aiImages || []).map((x, i) => ({ ...x, slot: Number.isInteger(x.slot) ? x.slot : i }));
+  const made = await Promise.allSettled(images.map((x) => generateImage(x.prompt, x.slot - 1, ownerPhone)));
+  made.forEach((r, i) => {
+    if (r.status !== 'fulfilled') return log.warn('ai image failed', { error: r.reason?.message });
+    const slot = images[i].slot - 1;
+    const at = aiImages.findIndex((x) => x.slot === slot);
+    if (at >= 0) aiImages[at] = { ...r.value, slot };
+    else aiImages.push({ ...r.value, slot });
+  });
+  return { aiImages, count: made.filter((r) => r.status === 'fulfilled').length };
+}
+
+async function redrawOnly(s, site, route) {
+  if (!(await allowEdit(s._id, config.limits.editsPerDay))) {
+    return sendText(s._id, "You've reached today's limit for changes. Please try again tomorrow.");
+  }
+  if (isDisallowedText(...route.images.map((x) => x.prompt))) return sendText(s._id, "Sorry, I can't add that to your website.");
+  await sendText(s._id, '🖼 Creating the new pictures. This takes about a minute...');
+  noteRevision(site.slug, route.images.map((x) => x.prompt).join(' | ')).catch(() => {});
+  const { aiImages, count } = await redrawImages(site, route.images, s._id);
+  if (!count) return sendText(s._id, "⚠️ I couldn't make new pictures right now. Your website is unchanged, please try again in a minute.");
+  await saveHistory(site);
+  track(s._id, 'chat_edit', { fields: ['aiImages'] });
+  return applyEdit(s, { aiImages }, `${route.summary || 'New pictures added'}\n\nSend *undo* to go back`);
+}
+
 async function chatEdit(s, site, request) {
   if (!(await allowEdit(s._id, config.limits.editsPerDay))) {
     return sendText(s._id, "You've reached today's limit for changes. Please try again tomorrow.");
@@ -825,18 +883,7 @@ async function chatEdit(s, site, request) {
   }
   const update = { ...fields };
   if (page) update.page = { ...site.page, ...page };
-  if (images.length) {
-    const aiImages = (site.aiImages || []).map((x, i) => ({ ...x, slot: Number.isInteger(x.slot) ? x.slot : i }));
-    const made = await Promise.allSettled(images.map((x) => generateImage(x.prompt, x.slot - 1, s._id)));
-    made.forEach((r, i) => {
-      if (r.status !== 'fulfilled') return log.warn('ai image failed', { error: r.reason?.message });
-      const slot = images[i].slot - 1;
-      const at = aiImages.findIndex((x) => x.slot === slot);
-      if (at >= 0) aiImages[at] = { ...r.value, slot };
-      else aiImages.push({ ...r.value, slot });
-    });
-    update.aiImages = aiImages;
-  }
+  if (images.length) update.aiImages = (await redrawImages(site, images, s._id)).aiImages;
   if (!Object.keys(update).length) {
     return sendText(s._id, summary || "I couldn't find anything to change. Tell me in a few words what you'd like different.");
   }

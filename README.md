@@ -175,7 +175,8 @@ test/
 | `WA_PHONE_NUMBER_ID`, `WA_TOKEN` | Sending messages, downloading photos |
 | `WA_APP_SECRET` | Webhook signature check |
 | `WA_VERIFY_TOKEN` | Webhook registration |
-| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_FALLBACK_MODEL` | Copywriting |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_DESIGN_MODEL` | Opus for website design, page edits, photo review |
+| `ANTHROPIC_CHAT_MODEL` | Small model (Haiku by default) for reading answers and replying to questions; Gemini goes first when `GEMINI_API_KEY` is set |
 | `ANTHROPIC_DESIGN_MODEL` | Designer model, default `claude-opus-5-5` |
 | `MONGO_URL`, `MONGO_DB` | Database |
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Photo uploads |

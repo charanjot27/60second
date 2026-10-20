@@ -97,10 +97,6 @@ function parseJson(text) {
   return JSON.parse(text.slice(start, end + 1));
 }
 
-async function callModel(model, text, timeoutMs) {
-  const out = await callClaude({ model, system: SYSTEM_PROMPT, user: text.slice(0, 2000), maxTokens: 6000, effort: 'medium', timeoutMs });
-  return parseJson(out);
-}
 
 const LANG_NAMES = { en: 'English', hi: 'Hindi (Devanagari script)', pa: 'Punjabi (Gurmukhi script)' };
 
@@ -111,14 +107,14 @@ export async function extractBusiness(rawText, ownerName = '', lang = '') {
 
   const deadline = Date.now() + config.ai.timeoutMs;
   const attempts = [];
-  if (config.ai.apiKey) {
-    for (const model of [config.ai.model, config.ai.fallbackModel].filter(Boolean)) {
-      attempts.push([model, (ms) => callModel(model, text, ms)]);
-    }
+  if (geminiEnabled()) {
+    attempts.push(['gemini', (ms) => callGemini({ system: SYSTEM_PROMPT, user: text.slice(0, 2000), maxTokens: 1500, temperature: 0.4, timeoutMs: ms, json: true }).then(parseJson)]);
+  }
+  if (config.ai.apiKey && config.ai.chatModel) {
+    attempts.push([config.ai.chatModel, (ms) => callClaude({ model: config.ai.chatModel, system: SYSTEM_PROMPT, user: text.slice(0, 2000), maxTokens: 2000, effort: 'low', timeoutMs: ms }).then(parseJson)]);
   }
   if (geminiEnabled()) {
-    attempts.push(['gemini', (ms) => callGemini({ system: SYSTEM_PROMPT, user: text.slice(0, 2000), maxTokens: 1200, temperature: 0.5, timeoutMs: ms, json: true }).then(parseJson)]);
-    attempts.push(['gemini', (ms) => callGemini({ system: SYSTEM_PROMPT, user: text.slice(0, 2000), maxTokens: 1200, temperature: 0.3, timeoutMs: ms, json: true }).then(parseJson)]);
+    attempts.push(['gemini', (ms) => callGemini({ system: SYSTEM_PROMPT, user: text.slice(0, 2000), maxTokens: 1500, temperature: 0.2, timeoutMs: ms, json: true }).then(parseJson)]);
   }
   let result = null;
   for (const [name, run] of attempts) {

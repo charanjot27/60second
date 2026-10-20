@@ -26,8 +26,7 @@ export const config = {
   },
   ai: {
     apiKey: env.ANTHROPIC_API_KEY || '',
-    model: env.ANTHROPIC_MODEL || 'claude-opus-5-5',
-    fallbackModel: env.ANTHROPIC_FALLBACK_MODEL || '',
+    chatModel: env.ANTHROPIC_CHAT_MODEL ?? 'claude-haiku-5-5',
     designModel: env.ANTHROPIC_DESIGN_MODEL || 'claude-opus-5-5',
     designEffort: ['low', 'medium', 'high', 'xhigh', 'max'].includes(env.DESIGN_EFFORT) ? env.DESIGN_EFFORT : 'high',
     timeoutMs: 60000,
