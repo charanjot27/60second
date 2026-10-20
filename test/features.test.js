@@ -1196,3 +1196,41 @@ test('questions and small talk go to the small model, Opus is kept for website w
     globalThis.fetch = realFetch;
   }
 });
+
+test('an admin can start a new business website and switch between websites', async () => {
+  const { handleMessage } = await import('../src/bot.js');
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes('graph.facebook.com')) sent.push(String(init?.body || ''));
+    return new Response('{"messages":[{"id":"x"}]}', { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const admin = '919000000060';
+  const owner = '919000000061';
+  config.adminNumbers.push(admin);
+  const say = (from, text) => handleMessage({ id: crypto.randomUUID(), from, name: 'A', type: 'text', text });
+  try {
+    await db.sites.insertOne({ slug: 'trucks', ownerPhone: admin, businessName: 'Sandhu Roadlines', status: 'active', plan: 'free', createdAt: new Date() });
+    await db.sites.insertOne({ slug: 'oldshop', ownerPhone: admin, businessName: 'Old Shop', status: 'active', plan: 'free', createdAt: new Date(Date.now() - 1000) });
+    await say(admin, 'hi');
+    assert.ok(sent.at(-1).includes('trucks'));
+    await say(admin, 'new website');
+    assert.ok(sent.at(-1).includes('lang_en'));
+    assert.equal((await db.sessions.findOne({ _id: admin })).state, 'ASK_LANG');
+    await say(admin, 'start over');
+    assert.equal((await db.sessions.findOne({ _id: admin })).state, 'ASK_LANG');
+    await say(admin, 'my websites');
+    assert.ok(sent.at(-1).includes('oldshop') && sent.at(-1).includes('trucks'));
+    await say(admin, 'switch oldshop');
+    const session = await db.sessions.findOne({ _id: admin });
+    assert.equal(session.slug, 'oldshop');
+    assert.equal(session.state, 'LIVE');
+
+    await db.sites.insertOne({ slug: 'trialshop', ownerPhone: owner, businessName: 'Trial', status: 'trial', plan: 'trial', trialEndsAt: new Date(Date.now() + 3600e3), createdAt: new Date() });
+    await say(owner, 'new website');
+    assert.ok(sent.at(-1).includes('once your current one is on a paid plan'));
+  } finally {
+    globalThis.fetch = realFetch;
+    config.adminNumbers.pop();
+  }
+});

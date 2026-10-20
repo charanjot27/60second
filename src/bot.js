@@ -44,6 +44,9 @@ const ROOT = config.rootDomain;
 const MAX_PHOTOS = config.limits.maxPhotos;
 const MAX_VIDEOS = config.limits.maxVideos;
 const RESTART = new Set(['restart', 'reset', 'start over', 'start again']);
+const NEW_SITE = new Set(['new website', 'new site', 'another website', 'another site', 'create new website', 'make new website', 'make a new website', 'new business', 'add business', 'add website']);
+const MY_SITES = new Set(['my websites', 'my sites', 'websites', 'sites', 'switch']);
+const SWITCH = /^(?:switch|open|use)\s+(?:to\s+)?([a-z0-9-]{3,30})$/;
 const DELETE = new Set(['delete', 'delete my site', 'delete site', 'delete website', 'delete my website']);
 const CHAT = new Set(['hi', 'hii', 'hello', 'hey', 'menu', 'help', 'ok', 'okay', 'thanks', 'thank you', 'namaste', 'sat sri akal', 'start']);
 const PAY = new Set(['pay', 'subscribe', 'activate', 'reactivate', 'upgrade', 'buy', 'plan', 'keep it', 'keep', 'keep my site']);
@@ -78,6 +81,12 @@ export async function handleMessage(msg) {
     result = await modelCheck(s);
   } else if (isAdmin && ADMIN_CMD.test(cmd)) {
     result = await adminCommand(s, cmd);
+  } else if (NEW_SITE.has(cmd)) {
+    result = await startNewSite(s);
+  } else if (MY_SITES.has(cmd)) {
+    result = await listSites(s);
+  } else if (SWITCH.test(cmd)) {
+    result = await switchSite(s, cmd.match(SWITCH)[1]);
   } else if (RESTART.has(cmd)) {
     clearMediaTimer(s._id);
     s.state = 'NEW';
@@ -234,7 +243,7 @@ function askPhotos(s) {
 
 const HANDLERS = {
   async NEW(s) {
-    const existing = await ownedSite(s);
+    const existing = s.fresh ? null : await ownedSite(s);
     if (existing) {
       s.state = 'LIVE';
       s.slug = existing.slug;
@@ -578,6 +587,44 @@ function normalizePhone(input) {
   return digits.length >= 11 && digits.length <= 15 ? digits : null;
 }
 
+async function startNewSite(s) {
+  const owned = await sites.find({ ownerPhone: s._id }).sort({ createdAt: -1 }).limit(20).toArray();
+  const allowed = isAdminPhone(s._id) || !owned.length || owned.every((x) => x.plan === 'paid' && accessState(x) === 'live');
+  if (!allowed) {
+    return sendText(s._id, `You can make another website once your current one is on a paid plan. Send *pay* to keep ${siteUrl(owned[0].slug)} online.`);
+  }
+  clearMediaTimer(s._id);
+  s.fresh = true;
+  s.slug = null;
+  s.state = 'NEW';
+  s.draft = {};
+  s.editing = null;
+  return HANDLERS.NEW(s);
+}
+
+async function listSites(s) {
+  const owned = await sites.find({ ownerPhone: s._id }).sort({ createdAt: -1 }).limit(20).toArray();
+  if (!owned.length) return sendText(s._id, "You don't have a website yet. Send *hi* to make one.");
+  const current = s.slug || owned[0].slug;
+  return sendText(
+    s._id,
+    `🌐 Your websites:\n\n${owned.map((x) => `${x.slug === current ? '👉' : '•'} *${x.slug}* (${x.businessName}) · ${accessState(x)}`).join('\n')}\n\n` +
+      'Send *switch name* to work on another one, or *new website* to make one more.'
+  );
+}
+
+async function switchSite(s, slug) {
+  const site = await sites.findOne({ slug, ownerPhone: s._id });
+  if (!site) return sendText(s._id, `I couldn't find a website called *${slug}* on your number. Send *my websites* to see them.`);
+  clearMediaTimer(s._id);
+  s.fresh = false;
+  s.slug = site.slug;
+  s.state = 'LIVE';
+  s.draft = {};
+  s.editing = null;
+  return liveMenu(s, site);
+}
+
 function ownedSite(s) {
   if (s.slug) return sites.findOne({ slug: s.slug, ownerPhone: s._id });
   return sites.findOne({ ownerPhone: s._id }, { sort: { createdAt: -1 } });
@@ -709,6 +756,7 @@ async function publish(s) {
   track(s._id, 'published', { seconds: secs, trial });
   s.state = 'LIVE';
   s.slug = d.slug;
+  s.fresh = false;
   s.draft = {};
   s.editing = null;
 
@@ -1118,7 +1166,7 @@ function liveMenu(s, site) {
   return sendButtons(
     s._id,
     `Your website: ${url}\n\n${trialNote}To change anything, type it or send a voice note, for example _"make the colours dark blue"_.\n\n` +
-      `More: *new design*, *undo*, *leads*, *domain*, *email you@example.com*, *number 98xxxxxxxx*, *pay*, *cancel plan*, *delete my site*`,
+      `More: *new design*, *undo*, *leads*, *domain*, *email you@example.com*, *number 98xxxxxxxx*, *pay*, *cancel plan*, *my websites*, *new website*, *delete my site*`,
     [
       { id: 'edit_about', title: 'Edit details' },
       { id: 'edit_photos', title: 'Change photos' },

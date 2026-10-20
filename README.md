@@ -87,6 +87,8 @@ Domains are reminded 30, 7 and 1 days before they expire; an expired domain fall
 | any sentence or voice note | Applies that change to the site (voice notes are read back for confirmation first) |
 | `pay` | Sends the payment link (monthly or every 2 weeks, autopay or once); paying early adds time |
 | `domain` | Finds and buys a domain, or renews the current one |
+| `new website` | Starts a new business website on the same number (admins anytime, others once their sites are paid) |
+| `my websites`, `switch name` | Lists the number's websites and picks which one later messages change |
 | `check mybusiness.com` | Checks and prices one domain |
 | `cancel plan` | Stops autopay and takes the site offline at once |
 | `connect domain mybusiness.com` | Adds the owner's own domain and sends the DNS records for GoDaddy and others |
