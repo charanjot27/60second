@@ -19,8 +19,6 @@ const STRINGS = {
     proceed: 'Proceed ✅',
     redo_voice: 'Record again 🎤',
     redo_text: 'Start over ✏️',
-    style:
-      'Which website do you want?\n\n⚡ *Basic*: clean and simple, ready in seconds.\n\n🎨 *Advanced*: a premium one-page website designed just for your business, with realistic pictures.',
     photos:
       '📸 Send up to {photos} photos or {videos} short videos of your work, products or shop, then tap Done.\n\nNo photos? Tap *No photos* and I will create realistic pictures for you.',
     done: 'Done ✅',
@@ -31,6 +29,10 @@ const STRINGS = {
     form_phone: 'Phone number',
     form_message: 'Message',
     form_send: 'Send',
+    form_date: 'Preferred date',
+    form_time: 'Preferred time',
+    form_guests: 'Number of people',
+    form_need: 'What are you looking for?',
     videos_title: 'Videos',
     thanks: 'Thank you! {name} will contact you soon.',
     back: 'Back to the website',
@@ -53,8 +55,6 @@ const STRINGS = {
     proceed: 'आगे बढ़ें ✅',
     redo_voice: 'दोबारा बोलें 🎤',
     redo_text: 'फिर से शुरू ✏️',
-    style:
-      'आपको कौन-सी वेबसाइट चाहिए?\n\n⚡ *Basic*: साफ़ और सरल, कुछ सेकंड में तैयार।\n\n🎨 *Advanced*: आपके व्यवसाय के लिए खास डिज़ाइन की गई प्रीमियम वेबसाइट, असली जैसी तस्वीरों के साथ।',
     photos:
       '📸 अपने काम, प्रोडक्ट या दुकान की {photos} तक फ़ोटो या {videos} छोटे वीडियो भेजें, फिर *हो गया* दबाएं।\n\nफ़ोटो नहीं हैं? *फ़ोटो नहीं* दबाएं, मैं आपके लिए असली जैसी तस्वीरें बना दूँगा।',
     done: 'हो गया ✅',
@@ -65,6 +65,10 @@ const STRINGS = {
     form_phone: 'फ़ोन नंबर',
     form_message: 'संदेश',
     form_send: 'भेजें',
+    form_date: 'पसंदीदा तारीख',
+    form_time: 'पसंदीदा समय',
+    form_guests: 'कितने लोग',
+    form_need: 'आपको क्या चाहिए?',
     videos_title: 'वीडियो',
     thanks: 'धन्यवाद! {name} जल्द ही आपसे संपर्क करेंगे।',
     back: 'वेबसाइट पर वापस जाएं',
@@ -87,8 +91,6 @@ const STRINGS = {
     proceed: 'ਅੱਗੇ ਵਧੋ ✅',
     redo_voice: 'ਦੁਬਾਰਾ ਬੋਲੋ 🎤',
     redo_text: 'ਮੁੜ ਸ਼ੁਰੂ ✏️',
-    style:
-      'ਤੁਹਾਨੂੰ ਕਿਹੜੀ ਵੈੱਬਸਾਈਟ ਚਾਹੀਦੀ ਹੈ?\n\n⚡ *Basic*: ਸਾਫ਼ ਅਤੇ ਸਧਾਰਨ, ਕੁਝ ਸਕਿੰਟਾਂ ਵਿੱਚ ਤਿਆਰ।\n\n🎨 *Advanced*: ਤੁਹਾਡੇ ਕਾਰੋਬਾਰ ਲਈ ਖ਼ਾਸ ਡਿਜ਼ਾਈਨ ਕੀਤੀ ਪ੍ਰੀਮੀਅਮ ਵੈੱਬਸਾਈਟ, ਅਸਲੀ ਵਰਗੀਆਂ ਤਸਵੀਰਾਂ ਨਾਲ।',
     photos:
       '📸 ਆਪਣੇ ਕੰਮ, ਪ੍ਰੋਡਕਟ ਜਾਂ ਦੁਕਾਨ ਦੀਆਂ {photos} ਤੱਕ ਫ਼ੋਟੋਆਂ ਜਾਂ {videos} ਛੋਟੇ ਵੀਡੀਓ ਭੇਜੋ, ਫਿਰ *ਹੋ ਗਿਆ* ਦਬਾਓ।\n\nਫ਼ੋਟੋਆਂ ਨਹੀਂ ਹਨ? *ਫ਼ੋਟੋਆਂ ਨਹੀਂ* ਦਬਾਓ, ਮੈਂ ਤੁਹਾਡੇ ਲਈ ਅਸਲੀ ਵਰਗੀਆਂ ਤਸਵੀਰਾਂ ਬਣਾ ਦਿਆਂਗਾ।',
     done: 'ਹੋ ਗਿਆ ✅',
@@ -99,6 +101,10 @@ const STRINGS = {
     form_phone: 'ਫ਼ੋਨ ਨੰਬਰ',
     form_message: 'ਸੁਨੇਹਾ',
     form_send: 'ਭੇਜੋ',
+    form_date: 'ਪਸੰਦੀਦਾ ਤਾਰੀਖ',
+    form_time: 'ਪਸੰਦੀਦਾ ਸਮਾਂ',
+    form_guests: 'ਕਿੰਨੇ ਲੋਕ',
+    form_need: 'ਤੁਹਾਨੂੰ ਕੀ ਚਾਹੀਦਾ ਹੈ?',
     videos_title: 'ਵੀਡੀਓ',
     thanks: 'ਧੰਨਵਾਦ! {name} ਜਲਦੀ ਹੀ ਤੁਹਾਡੇ ਨਾਲ ਸੰਪਰਕ ਕਰਨਗੇ।',
     back: 'ਵੈੱਬਸਾਈਟ ਤੇ ਵਾਪਸ ਜਾਓ',

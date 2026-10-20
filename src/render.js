@@ -21,7 +21,7 @@ const ICONS = {
   call: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z"/></svg>',
 };
 
-export const SITE_SCRIPT = `(()=>{document.addEventListener("click",e=>{const a=e.target.closest&&e.target.closest("a[href]");if(!a||a.closest("footer"))return;const h=a.getAttribute("href")||"",k=h.startsWith("tel:")?"call":h.includes("wa.me/")?"whatsapp":"";if(k&&navigator.sendBeacon)try{navigator.sendBeacon("/t",k)}catch(_){}});const d=document,b=d.getElementById("bar"),c=d.getElementById("cta");if(b&&c){const v=()=>b.classList.toggle("on",c.getBoundingClientRect().bottom<0);addEventListener("scroll",v,{passive:!0});v()}const l=d.getElementById("lb");if(!l||!l.showModal)return;const m=l.querySelector("img"),n=l.querySelector(".n"),p=[...d.querySelectorAll("[data-i]")];let i=0,x=null;const s=k=>{i=(k+p.length)%p.length;const g=p[i].querySelector("img");m.src=g.dataset.lg;m.alt=g.alt;n.textContent=i+1+" / "+p.length};p.forEach((e,k)=>e.addEventListener("click",()=>{s(k);l.showModal()}));const q=(c,f)=>{const e=l.querySelector(c);e&&e.addEventListener("click",f)};q(".x",()=>l.close());q(".prev",()=>s(i-1));q(".next",()=>s(i+1));l.addEventListener("keydown",e=>{e.key==="ArrowLeft"&&s(i-1);e.key==="ArrowRight"&&s(i+1)});l.addEventListener("click",e=>{e.target===l&&l.close()});l.addEventListener("touchstart",e=>{x=e.touches[0].clientX},{passive:!0});l.addEventListener("touchend",e=>{if(x===null)return;const t=e.changedTouches[0].clientX-x;Math.abs(t)>40&&p.length>1&&s(i+(t<0?1:-1));x=null})})();`;
+export const SITE_SCRIPT = `(()=>{document.addEventListener("click",e=>{const a=e.target.closest&&e.target.closest("a[href]");if(!a||a.closest("footer"))return;const h=a.getAttribute("href")||"",k=h.startsWith("tel:")?"call":h.includes("wa.me/")?"whatsapp":"";if(k&&navigator.sendBeacon)try{navigator.sendBeacon("/t",k)}catch(_){}});const d=document,b=d.getElementById("bar"),c=d.getElementById("cta"),f=d.getElementById("enquiry");if(b){const o=()=>{if(!f)return!1;const r=f.getBoundingClientRect();return r.top<innerHeight&&r.bottom>0||f.contains(d.activeElement)},v=()=>b.classList.toggle("on",(!c||c.getBoundingClientRect().bottom<0)&&!o());addEventListener("scroll",v,{passive:!0});d.addEventListener("focusin",v);d.addEventListener("focusout",()=>setTimeout(v,0));v()}const l=d.getElementById("lb");if(!l||!l.showModal)return;const m=l.querySelector("img"),n=l.querySelector(".n"),p=[...d.querySelectorAll("[data-i]")];let i=0,x=null;const s=k=>{i=(k+p.length)%p.length;const g=p[i].querySelector("img");m.src=g.dataset.lg;m.alt=g.alt;n.textContent=i+1+" / "+p.length};p.forEach((e,k)=>e.addEventListener("click",()=>{s(k);l.showModal()}));const q=(c,f)=>{const e=l.querySelector(c);e&&e.addEventListener("click",f)};q(".x",()=>l.close());q(".prev",()=>s(i-1));q(".next",()=>s(i+1));l.addEventListener("keydown",e=>{e.key==="ArrowLeft"&&s(i-1);e.key==="ArrowRight"&&s(i+1)});l.addEventListener("click",e=>{e.target===l&&l.close()});l.addEventListener("touchstart",e=>{x=e.touches[0].clientX},{passive:!0});l.addEventListener("touchend",e=>{if(x===null)return;const t=e.changedTouches[0].clientX-x;Math.abs(t)>40&&p.length>1&&s(i+(t<0?1:-1));x=null})})();`;
 
 export function faviconLink(site, color) {
   const fill = /^#[0-9a-f]{6}$/i.test(String(color || '')) ? color : '#222222';
@@ -163,7 +163,7 @@ function mapsUrl(site) {
 }
 
 function photoMarkup(site) {
-  const photos = site.photos || [];
+  const photos = (site.photos || []).filter((p) => !p.asset || p.asset.usable);
   if (!photos.length) {
     const initial = [...(site.businessName || '?').trim()][0]?.toUpperCase() || '?';
     return `<div class="mono" aria-hidden="true">${e(initial)}</div>`;
@@ -185,7 +185,7 @@ export function renderSite(site) {
   const waText = `Hi ${site.businessName}, I saw your website and would like to know more.`;
   const waHref = `https://wa.me/${phone}?text=${encodeURIComponent(waText)}`;
   const telHref = `tel:+${phone}`;
-  const photos = site.photos || [];
+  const photos = (site.photos || []).filter((p) => !p.asset || p.asset.usable);
   const cover = photos[0];
   const map = mapsUrl(site);
   const eyebrow = [site.category, site.city].filter(Boolean).join(' · ');

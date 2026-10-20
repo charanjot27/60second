@@ -325,7 +325,8 @@ test('generateSitePage parses Gemini sections and retries once', async () => {
   };
   try {
     const page = await generateSitePage({ businessName: 'Study Room', category: 'Library', services: [], photos: [] }, null);
-    assert.equal(calls.length, 2);
+    assert.equal(calls.length, 3);
+    assert.ok(page.qa.issues.some((x) => /exactly one/.test(x)));
     assert.equal(page.themeColor, '#112233');
     assert.match(page.fonts, /family=Sora:wght@400;700/);
     assert.ok(page.body.includes('{{wa}}'));

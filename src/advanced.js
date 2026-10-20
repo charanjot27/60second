@@ -4,6 +4,7 @@ import { SITE_SCRIPT, escapeHtml as e, formatPhone, faviconLink } from './render
 import { ENHANCE_SCRIPT } from './enhance.js';
 import { extrasHtml, creditsHtml, EXTRAS_CSS } from './extras.js';
 import { buildData, fillTemplate, sanitizeBody, pageCss } from './generate.js';
+import { arrangeOwnPhotos } from './assets.js';
 
 const WA_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2c-1.5 0-3-.4-4.3-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.4.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.8 11.9 11.9 0 0 0 4.6 4c1.7.7 2.3.8 3.2.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3Z"/></svg>';
@@ -125,9 +126,10 @@ function renderGenerated(site) {
   const url = site.customDomain ? `https://${site.customDomain}` : siteUrl(site.slug);
   const data = buildData(site, { formatPhone });
   const body = sanitizeBody(fillTemplate(page.body, data));
-  const own = (site.photos || []).filter((x) => !x.ai);
+  const arranged = arrangeOwnPhotos(site.photos);
+  const own = arranged.gallery;
   const ai = (site.aiImages || []).filter((x) => x.lg);
-  const og = own[0] || ai[0];
+  const og = arranged.hero || own[0] || ai[0];
   const needsGallery = own.length > 0 && !body.includes('data-i=');
   const title = site.category && site.city
     ? `${site.businessName}, ${site.category} in ${site.city}`
@@ -135,6 +137,10 @@ function renderGenerated(site) {
   const description = site.tagline || site.description?.slice(0, 160) || title;
   const phone = data.scalars.tel.slice(4);
   const hasCta = body.includes('id="cta"');
+  const focusCss = data.focus
+    .map((f) => `img[src="${String(f.src).replace(/["\\\n<>]/g, '')}"]{object-position:${Number(f.x)}% ${Number(f.y)}%}`)
+    .join('');
+  const barLabel = data.scalars.action.length <= 22 ? data.scalars.action : 'WhatsApp';
   const gallery = data.lists.photos;
   const lightbox = gallery.length
     ? `<dialog class="lb" id="lb" aria-label="Photos"><img alt=""><button type="button" class="x" aria-label="Close">×</button>${
@@ -175,7 +181,7 @@ ${og ? `<meta property="og:image" content="${e(og.lg)}">` : ''}
 ${page.fonts ? `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="${e(page.fonts)}">` : ''}
 <script type="application/ld+json">${ld}</script>
 <script>${ENHANCE_SCRIPT}</script>
-<style>${SHELL_CSS}${pageCss(page.css)}${EXTRAS_CSS}</style>
+<style>${SHELL_CSS}${pageCss(page.css)}${focusCss}${EXTRAS_CSS}</style>
 </head>
 <body>
 ${body}
@@ -185,7 +191,7 @@ ${extrasHtml(site, { gallery: needsGallery ? data.lists.photos : [] })}
 ${creditsHtml(site.aiImages)}
 <p><a href="mailto:${e(config.abuseEmail)}?subject=${encodeURIComponent(`Report ${site.slug}`)}">Report this site</a></p>
 </footer>
-<nav class="bar${hasCta ? '' : ' on'}" id="bar" aria-label="Contact"><a href="${e(data.scalars.wa)}">${WA_ICON}WhatsApp</a><a href="${e(data.scalars.tel)}">${CALL_ICON}Call</a></nav>
+<nav class="bar${hasCta ? '' : ' on'}" id="bar" aria-label="Contact"><a href="${e(data.scalars.wa)}">${WA_ICON}${e(barLabel)}</a><a href="${e(data.scalars.tel)}">${CALL_ICON}Call</a></nav>
 ${lightbox}
 <script>${SITE_SCRIPT}</script>
 </body>
@@ -201,7 +207,7 @@ export function renderAdvanced(site) {
   const phone = String(site.phone || site.ownerPhone || '').replace(/\D/g, '');
   const waHref = `https://wa.me/${phone}?text=${encodeURIComponent(`Hi ${site.businessName}, I saw your website and would like to know more.`)}`;
   const telHref = `tel:+${phone}`;
-  const own = (site.photos || []).filter((x) => !x.ai);
+  const own = arrangeOwnPhotos(site.photos).gallery;
   const ai = (site.aiImages || []).filter((x) => x.lg);
   const hero = ai[0] || own[0];
   const aside = ai[1] || own[1] || ai[0] || own[0];

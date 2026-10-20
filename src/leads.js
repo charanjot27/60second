@@ -16,7 +16,11 @@ export function parseLead(body) {
   const phone = clean(body.phone, 20).replace(/[^\d+]/g, '');
   const message = clean(body.message, 1000);
   if (!name || phone.replace(/\D/g, '').length < 7) return null;
-  return { name, phone, message };
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date || '')) ? body.date : '';
+  const time = /^\d{2}:\d{2}$/.test(String(body.time || '')) ? body.time : '';
+  const guests = Number.isInteger(Number(body.guests)) && Number(body.guests) > 0 && Number(body.guests) <= 500 ? Number(body.guests) : 0;
+  const need = clean(body.need, 200);
+  return { name, phone, message, ...(date && { date }), ...(time && { time }), ...(guests && { guests }), ...(need && { need }) };
 }
 
 async function liveSite(req) {
@@ -40,6 +44,9 @@ export async function handleLead(req, res) {
     const text =
       `📩 *New enquiry from your website*\n\n` +
       `👤 ${lead.name}\n📞 ${formatPhone(digits) || lead.phone}\n` +
+      (lead.need ? `🔎 ${lead.need}\n` : '') +
+      (lead.date ? `📅 ${lead.date}${lead.time ? ` at ${lead.time}` : ''}\n` : lead.time ? `🕒 ${lead.time}\n` : '') +
+      (lead.guests ? `👥 ${lead.guests} people\n` : '') +
       (lead.message ? `💬 ${lead.message}\n` : '') +
       `\nReply on WhatsApp: https://wa.me/${digits}`;
     notifyOwner(site, {

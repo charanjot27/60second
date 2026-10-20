@@ -10,10 +10,11 @@ import { allowAiCall, allowPhoto, allowAdvanced, allowNewSite, allowEdit, allowV
 import { makeDesign } from './design.js';
 import { generateImage, fallbackPrompts } from './images.js';
 import { sourceSiteImages } from './photos.js';
-import { classifyIndustry } from './industry.js';
+import { classifyIndustry, industryAction } from './industry.js';
+import { inspectPhotos, arrangeOwnPhotos } from './assets.js';
 import { callClaudeRaw, claudeEnabled } from './claude.js';
 import { createArtDirection, generateSitePage, editSite } from './generate.js';
-import { designMemory, recordDesign, markOutcome } from './memory.js';
+import { designMemory, recordDesign, markOutcome, noteRevision } from './memory.js';
 import { transcribe } from './voice.js';
 import {
   billingEnabled,
@@ -223,14 +224,6 @@ async function understand(s, words, viaVoice) {
   );
 }
 
-function askStyle(s) {
-  s.state = 'ASK_STYLE';
-  return sendButtons(s._id, `*${s.draft.businessName}* ✨\n\n${t(lang(s), 'style')}`, [
-    { id: 'style_basic', title: 'Basic ⚡' },
-    { id: 'style_pro', title: 'Advanced 🎨' },
-  ]);
-}
-
 function askPhotos(s) {
   s.state = 'ASK_PHOTOS';
   return sendButtons(s._id, t(lang(s), 'photos', { photos: MAX_PHOTOS, videos: MAX_VIDEOS }), [
@@ -315,7 +308,8 @@ const HANDLERS = {
   async CONFIRM(s, msg, text, cmd) {
     if (cmd === 'proceed' || /^(yes|ok|okay|proceed|correct|haan|ha|ਹਾਂ|हाँ|हां)$/.test(cmd)) {
       track(s._id, 'confirmed', { voice: s.draft.viaVoice });
-      return askStyle(s);
+      s.draft.style = 'advanced';
+      return askPhotos(s);
     }
     if (cmd === 'redo_voice') return askVoice(s);
     if (cmd === 'redo_text' || cmd === 'mode_text') return askName(s);
@@ -326,11 +320,8 @@ const HANDLERS = {
     return sendButtons(s._id, t(lang(s), 'too_short'), [{ id: 'proceed', title: t(lang(s), 'proceed') }]);
   },
 
-  async ASK_STYLE(s, msg, text, cmd) {
-    const advanced = cmd === 'style_pro' || /^(advanced|pro|good|ui)/.test(cmd);
-    const basic = cmd === 'style_basic' || /^(basic|simple|60)/.test(cmd);
-    if (!advanced && !basic) return askStyle(s);
-    s.draft.style = advanced ? 'advanced' : 'basic';
+  async ASK_STYLE(s) {
+    s.draft.style = 'advanced';
     return askPhotos(s);
   },
 
@@ -366,7 +357,7 @@ const HANDLERS = {
       if (s.editing === 'photos') {
         const site = await ownedSite(s);
         const update = {};
-        if (s.draft.photos.length) update.photos = s.draft.photos;
+        if (s.draft.photos.length) update.photos = await inspectPhotos(s.draft.photos, { name: site?.businessName, category: site?.category, city: site?.city });
         if (s.draft.videos.length) update.videos = s.draft.videos;
         if (!Object.keys(update).length) return backToLive(s, 'Photos unchanged.');
         const result = await applyEdit(s, update, 'Photos updated');
@@ -486,7 +477,7 @@ const HANDLERS = {
       await saveHistory(site);
       return applyEdit(
         s,
-        { style: 'advanced', design: made.design, page: made.page, ...(made.aiImages.length ? { aiImages: made.aiImages } : {}) },
+        { style: 'advanced', design: made.design, page: made.page, photos: site.photos, ...(made.brief ? { brief: made.brief } : {}), ...(made.aiImages.length ? { aiImages: made.aiImages } : {}) },
         '🎨 New design ready (send *undo* to go back)'
       );
     }
@@ -663,16 +654,18 @@ async function publish(s) {
   const now = new Date();
   let style = d.style === 'advanced' ? 'advanced' : 'basic';
   let extras = {};
+  let brief = null;
   let designFailed = false;
   if (style === 'advanced') {
     if (!(await allowAdvanced(s._id, config.limits.advancedPerDay))) {
       style = 'basic';
-      await sendText(s._id, "You've reached today's limit for advanced designs, so I'll publish the basic version.");
+      await sendText(s._id, "You've reached today's limit for designed websites, so I'll publish a simpler layout today. Send *new design* tomorrow for the full design.");
     } else {
       await sendText(s._id, '🎨 Designing your website and creating its pictures. This takes 3 to 5 minutes, I will send the link here...');
-      const made = await designSite(d, s._id);
-      extras = { design: made.design, aiImages: made.aiImages, ...(made.page ? { page: made.page } : {}) };
+      const made = await designSite({ ...d, language: s.lang || d.language }, s._id);
+      extras = { design: made.design, aiImages: made.aiImages, ...(made.page ? { page: made.page } : {}), ...(made.brief ? { brief: made.brief } : {}) };
       designFailed = !made.page;
+      brief = made.brief;
     }
   }
   const trial = onTrial(s._id);
@@ -718,24 +711,26 @@ async function publish(s) {
   s.draft = {};
   s.editing = null;
 
+  const action = industryAction(classifyIndustry(site)).label;
+  const missing = (brief?.missing || []).slice(0, 3);
   await sendText(
     s._id,
     `🎉 Your website is live${secs ? ` (built in ${secs} seconds)` : ''}!\n\n${siteUrl(d.slug)}\n\n` +
+      (designFailed
+        ? `⚠️ The designer AI was busy, so I used a simpler layout. Send *new design* in a minute for the full design.\n\n`
+        : brief?.direction
+          ? `🎨 ${brief.direction}\n\n`
+          : '') +
+      `👉 Visitors tap *${action}* to message you on WhatsApp, and website enquiries arrive right here.\n\n` +
+      (missing.length ? `📝 To make it even better, send me: ${missing.join('; ')}.\n` : '') +
+      `📍 Share your location pin to add a map. Your number ${formatPhone(s._id)} is on the buttons (send *number 98xxxxxxxx* to change it).\n\n` +
       (trial
-        ? `⏳ It's *free for ${config.billing.trialHours} hours*. After that it goes offline automatically.\n` +
+        ? `⏳ It's *free for ${config.billing.trialHours} hours*, then it goes offline automatically.\n` +
           (billingEnabled()
             ? `To keep it online: *${priceLabel()}*. Pay by ${payMethods()}${autopayAvailable() ? ', with autopay or one period at a time' : ''}:\n${payLink(d.slug)}\n\n`
             : `To keep it online, just reply *keep it* here.\n\n`)
         : '') +
-      `ℹ️ Your number ${formatPhone(s._id)} is shown for the WhatsApp and Call buttons. To show a different number, send: *number 9876543210*\n` +
-      `📍 Share your location pin here to add a map.\n` +
-      `📩 Enquiries from your website arrive right here on WhatsApp.\n` +
-      (style === 'advanced'
-        ? designFailed
-          ? `⚠️ The designer AI was busy, so I used a simpler layout. Send *new design* in a minute to try again.\n`
-          : `🎨 Not happy with the look? Send *new design* for a fresh one.\n`
-        : '') +
-      `\n✏️ To change anything, just type it or send a voice note, for example _"make the colours dark blue"_. Send *undo* to go back.`
+      `✏️ Want changes? Just type or send a voice note, for example _"make the colours warmer"_. Send *undo* to go back or *new design* for a fresh look.`
   );
 }
 
@@ -743,6 +738,7 @@ async function designSite(site, ownerPhone) {
   const design = makeDesign(site, String(Date.now()));
   const memory = await designMemory(site.category).catch(() => null);
   const industry = classifyIndustry(site);
+  site.photos = await inspectPhotos(site.photos, { name: site.businessName, category: site.category, city: site.city, services: site.services });
   const brief = await createArtDirection(site, memory);
   const prompts =
     brief?.imagePrompts?.length === 4
@@ -753,14 +749,15 @@ async function designSite(site, ownerPhone) {
   const queries = [0, 1, 2, 3].map(
     (i) => brief?.searchQueries?.[i] || industry.queries[i] || [site.category, ['', 'interior', 'work', 'detail'][i]].filter(Boolean).join(' ')
   );
-  const own = (site.photos || []).filter((p) => !p.ai).length;
-  const skip = [own >= 1 && 0, own >= 2 && 1].filter((x) => x !== false);
+  const arranged = arrangeOwnPhotos(site.photos);
+  const skip = [arranged.hero && 0, arranged.about && 1, arranged.services && 2].filter((x) => x !== false && x !== null);
   const context = {
     businessClass: industry.name,
     business: { name: site.businessName, category: site.category, city: site.city, services: site.services },
     concept: brief?.concept,
     palette: brief?.palette,
     imageTreatment: brief?.imageTreatment,
+    acceptance: (brief?.images || []).map((r) => r.acceptance_criteria),
   };
   const [aiImages, page] = await Promise.all([
     sourceSiteImages({ prompts, queries, context, ownerPhone, skip }),
@@ -769,12 +766,25 @@ async function designSite(site, ownerPhone) {
       return null;
     }),
   ]);
-  if (page) recordDesign(site, brief, page).catch((err) => log.warn('design memory failed', { error: err.message }));
-  return { design, aiImages, page };
+  if (page) recordDesign(site, brief, page, aiImages).catch((err) => log.warn('design memory failed', { error: err.message }));
+  return { design, aiImages, page, brief: briefSummary(brief) };
+}
+
+function briefSummary(brief) {
+  if (!brief) return null;
+  const list = (v) => (Array.isArray(v) ? v.map((x) => String(x).slice(0, 160)).slice(0, 6) : []);
+  return {
+    ...(brief.brief && typeof brief.brief === 'object' ? { business: { ...brief.brief, facts: list(brief.brief.facts), assumptions: list(brief.brief.assumptions), missing: list(brief.brief.missing) } } : {}),
+    direction: String(brief.presentation?.direction || brief.concept || '').slice(0, 300),
+    missing: list(brief.brief?.missing),
+    images: brief.images || [],
+    seed: brief.seed || null,
+    industry: brief.industry || '',
+  };
 }
 
 function snapshot(site) {
-  const keys = ['style', 'businessName', 'tagline', 'description', 'services', 'city', 'category', 'design', 'page', 'aiImages'];
+  const keys = ['style', 'businessName', 'tagline', 'description', 'services', 'city', 'category', 'design', 'page', 'aiImages', 'brief'];
   return Object.fromEntries(keys.filter((k) => site[k] !== undefined).map((k) => [k, site[k]]));
 }
 
@@ -802,6 +812,7 @@ async function chatEdit(s, site, request) {
   }
   await sendText(s._id, site.page?.body ? '✏️ Working on your change. This takes 1 to 4 minutes...' : '✏️ Updating your website...');
   let result;
+  noteRevision(site.slug, request).catch(() => {});
   try {
     result = await editSite(site, request);
   } catch (err) {

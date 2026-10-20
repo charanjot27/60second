@@ -125,8 +125,10 @@ async function slotCandidates(slot, prompt, query) {
 const PICK_PROMPT = `You are the photo editor of an award-winning design studio, choosing pictures for one small business's website.
 For every slot, look at the candidates and choose the single best one for that slot, the brief and the art direction.
 Each slot belongs to one section of the page; the picture must clearly show what that section is about for THIS business and its business class (a clinic needs clinical scenes, a bakery needs its baked goods). Reject any candidate with visible text, watermarks or logos, distorted faces or hands, a subject unrelated to the section or the business, a setting that does not fit the business and its region, poor or blurry quality, or colours that clash with the palette.
+Check every candidate against the slot's acceptance criteria: the right subject and setting for the section, natural proportions and convincing materials, correct spelling of any text, room for the page text the brief asks for, a crop that works on both desktop and mobile, usable sharpness, and no artifacts.
+Reject anything misleading: an AI image that looks like evidence of this business's own staff, premises, completed work, properties or customer results when it is not.
 Prefer real photographs when they truly fit; choose the AI image when it fits the brief better. Never pick the same picture for two slots.
-Reply with JSON only: {"picks":[{"slot":1,"choice":"1A","why":"short reason"}]}. Use "choice": null when no candidate is good enough.`;
+Reply with JSON only: {"picks":[{"slot":1,"choice":"1A","why":"short reason","fix":""}]}. Use "choice": null when no candidate is good enough, and then say in "fix" exactly what a redrawn AI picture must change (one sentence).`;
 
 async function pickBest(slots, context) {
   const content = [{ type: 'text', text: `Business and art direction:\n${JSON.stringify(context, null, 2)}` }];
@@ -140,13 +142,27 @@ async function pickBest(slots, context) {
   const raw = await callClaude({ model: config.ai.designModel, system: PICK_PROMPT, user: content, maxTokens: 4000, effort: 'low', timeoutMs: 120000 });
   const json = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1));
   const picks = new Map();
+  const fixes = new Map();
   for (const p of json.picks || []) {
     const slot = Number(p.slot) - 1;
     const m = /^(\d)([A-Z])$/.exec(String(p.choice || ''));
     if (m && Number(m[1]) - 1 === slot) picks.set(slot, m[2].charCodeAt(0) - 65);
-    else if (p.choice === null) picks.set(slot, -1);
+    else if (p.choice === null) {
+      picks.set(slot, -1);
+      if (p.fix) fixes.set(slot, String(p.fix).slice(0, 300));
+    }
   }
+  picks.fixes = fixes;
   return picks;
+}
+
+async function redraw(prompt, fix, slot) {
+  try {
+    return await aiImageBuffer(`${prompt}. Correction: ${fix}`, slot);
+  } catch (err) {
+    log.warn('ai redraw failed', { error: err.message });
+    return null;
+  }
 }
 
 function defaultPick(cands) {
@@ -186,6 +202,12 @@ export async function sourceSiteImages({ prompts, queries = [], context = {}, ow
       if (!cands.length) return null;
       let index = picks.has(i) ? picks.get(i) : defaultPick(cands);
       if (index === -1) {
+        const fix = picks.fixes?.get(i);
+        const buffer = fix ? await redraw(briefs[i], fix, i) : null;
+        if (buffer) {
+          log.info('picture redrawn', { slot: i + 1, fix });
+          return { ...(await finalize({ source: 'AI', buffer }, i, ownerPhone, `${briefs[i]}. Correction: ${fix}`)), slot: i, review: 'redrawn' };
+        }
         index = cands.findIndex((c) => c.source === 'AI');
         if (index === -1) return null;
       }

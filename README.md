@@ -30,27 +30,41 @@ and cached for 60 seconds, so publishing is a single insert and is instant.
 | 2 | Type it or send a voice note | a tap |
 | 3 | Business name, location, services (typed one by one, or in one voice note) | text or a voice note |
 | 4 | "Here's what I understood" with Proceed: nothing expensive runs until the owner confirms | a tap, or a typed correction |
-| 5 | Basic or Advanced website | a tap |
-| 6 | Up to 6 photos or 2 videos, then Done (or No photos for AI pictures) | photos, videos |
-| 7 | Suggested address: Use this / Pick another | a tap, or a typed name |
+| 5 | Up to 6 photos or 2 videos, then Done (or No photos for AI pictures) | photos, videos |
+| 6 | Suggested address: Use this / Pick another | a tap, or a typed name |
 | ✅ | The live link and how many seconds it took | |
 
 Every business is matched to a business class (healthcare, dental, real estate, bakery, restaurant, beauty,
 fitness, education, fashion, jewellery, automotive, home services, professional, travel, events, retail,
 tech, garden, or the closest one). The class sets the favicon icon, which themes are allowed, what each
-section's picture shows, and what content customers expect. Owner photos always lead and are always shown.
+section's picture shows, what content customers expect, and the main action ("Book a Property Visit",
+"Reserve a Table", "Request a Quote"): the WhatsApp message, the sticky bar and the enquiry form fields
+(date, time, number of people, what they need) all follow it.
 
-Every Advanced site gets a random design seed (style archetype, colour mood, type direction, hero layout,
+Every site gets the full design; there is no Basic or Advanced question. A simpler layout is used only
+when the designer AI fails or the daily limit is reached.
+
+Owner photos are inspected first with vision (role, subject, visible text, focal point, quality). Logos,
+documents, screenshots, references and unclear photos are left out; the best fitting photos lead the
+hero and about sections, crops follow each photo's focal point, and alt text describes what is shown.
+
+Every site gets a random design seed (style archetype, colour mood, type direction, hero layout,
 motion personality) that avoids the seeds of recent sites. Hard rules are checked in code and the art
 direction is redone when it breaks one: banned display fonts (Inter, Poppins, Montserrat, Roboto, Open Sans,
-Lato, Raleway), recently used display fonts, contrast below 4.5:1, plain grey neutrals, tech indigo, pure
-black on white, and accents in the same hue family as a recent site. Each finished site stores a design
-manifest that the next sites are told to avoid.
+Lato, Raleway), text and button contrast below 4.5:1, plain grey neutrals, tech indigo, pure black on
+white, missing Gurmukhi or Devanagari fonts for Punjabi or Hindi pages, and a design that repeats a recent
+one in several ways at once (one shared font or colour alone is fine). Each finished site stores a design
+record (palette, fonts, layout, picture sources, audit findings, revisions and outcome) that later sites
+learn general lessons from; this is feedback-driven improvement, not model training.
 
-An Advanced site is made in three stages. Opus writes an art direction for that one business
-(palette, fonts, layout, voice and four picture briefs), the pictures are generated from those
-briefs while Opus builds the page, and the page is stored as a sanitized template. Every
-business gets its own identity.
+A site is made in stages. Opus writes a business brief (offer, audience, problem, main action, evidence,
+facts, assumptions and missing information) and an art direction for that one business, with four
+structured picture records that become ordered production prompts. Stock and AI candidates are reviewed
+against each record's acceptance criteria; a rejected AI picture is redrawn once with a targeted
+correction. Opus builds the page meanwhile, a static audit checks it (invented prices, ratings, years
+or counts, one h1, required sections, button and link labels, alt text, image sizes, focus styles,
+leftover placeholders) and the page is repaired once when it fails. The audit is static: it does not
+render the page in a browser.
 
 After launch the owner changes anything by typing it in plain words, for example
 "make the colours dark green" or "add home loans to our services". Opus edits the page,
@@ -78,7 +92,7 @@ Domains are reminded 30, 7 and 1 days before they expire; an expired domain fall
 | `connect domain mybusiness.com` | Adds the owner's own domain and sends the DNS records for GoDaddy and others |
 | `leads` | Shows the latest enquiries from the website form |
 | `email you@example.com` | Also sends enquiry alerts by email |
-| `new design` | A completely new design and pictures (also upgrades a Basic site) |
+| `new design` | A completely new design and pictures |
 | `undo` | Restores the version before the last change (up to 5 back) |
 
 | `restart`, `reset`, `start over` | Back to the start (or to the menu if a site exists) |
@@ -118,7 +132,8 @@ src/
 ├── razorpay.js    Razorpay API client and signature checks
 ├── porkbun.js     Porkbun API client
 ├── domainshop.js  Domain ideas, quotes, purchase, DNS and renewals
-├── memory.js      Design memory: avoids repeated fonts and colours, learns from paid sites
+├── assets.js      Owner photo inspection and placement
+├── memory.js      Design records: avoids repeated combinations, feedback from owners
 ├── designrules.js Design seeds and the hard design rules
 ├── industry.js    Business classes: favicon icon, themes, section pictures and content per class
 ├── leads.js       Enquiry form and Call-tap alerts to the owner

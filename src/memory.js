@@ -26,15 +26,29 @@ export function fingerprint(brief, page) {
   };
 }
 
-export async function recordDesign(site, brief, page) {
+export async function recordDesign(site, brief, page, images = []) {
   await designs.insertOne({
     slug: site.slug || '',
     category: site.category || '',
     city: site.city || '',
+    industry: brief?.industry || '',
+    audience: String(brief?.brief?.audience || '').slice(0, 200),
+    primaryAction: String(brief?.brief?.primaryAction || '').slice(0, 80),
     ...fingerprint(brief, page),
+    images: images.map((x) => ({ slot: x.slot, source: x.ai ? 'ai' : x.stock ? x.credit?.source || 'stock' : 'owner', review: x.review || 'picked', prompt: String(x.prompt || '').slice(0, 300) })),
+    qa: page?.qa ? { issues: page.qa.issues.slice(0, 12), checks: page.qa.checks } : null,
+    revisions: 0,
     outcome: 'live',
     at: new Date(),
   });
+}
+
+export async function noteRevision(slug, request) {
+  await designs.findOneAndUpdate(
+    { slug },
+    { $inc: { revisions: 1 }, $push: { requests: { $each: [String(request).slice(0, 200)], $slice: -10 } } },
+    { sort: { at: -1 } }
+  );
 }
 
 export async function markOutcome(slug, outcome) {
@@ -73,7 +87,7 @@ export function memoryNote(memory) {
   }
   if (memory.liked?.length) {
     lines.push(
-      'Designs that turned similar businesses into paying customers (learn the principles, never copy them):',
+      'Designs whose owners went on to pay, a feedback signal rather than proof of design quality (learn the general principles, never copy them):',
       ...memory.liked.map((d) => `- ${d.concept} (${d.mode}, accent ${d.accent}, ${d.displayFont} + ${d.bodyFont})`)
     );
   }

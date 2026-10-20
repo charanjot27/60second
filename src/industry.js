@@ -407,6 +407,32 @@ export const INDUSTRIES = [
   },
 ];
 
+const ACTIONS = {
+  healthcare: { label: 'Book an Appointment', ask: 'book an appointment', form: 'Request an appointment', fields: ['date', 'need'] },
+  dental: { label: 'Book an Appointment', ask: 'book an appointment', form: 'Request an appointment', fields: ['date', 'need'] },
+  'real-estate': { label: 'Book a Property Visit', ask: 'book a property visit', form: 'Book a property visit', fields: ['date', 'need'] },
+  bakery: { label: 'Order on WhatsApp', ask: 'place an order', form: 'Send an order request', fields: ['date', 'need'] },
+  restaurant: { label: 'Reserve a Table', ask: 'reserve a table', form: 'Request a table', fields: ['date', 'time', 'guests'] },
+  beauty: { label: 'Book an Appointment', ask: 'book an appointment', form: 'Request an appointment', fields: ['date', 'time', 'need'] },
+  fitness: { label: 'Ask About Membership', ask: 'know about membership', form: 'Ask about membership', fields: ['need'] },
+  education: { label: 'Ask About Admissions', ask: 'know about admissions', form: 'Ask about admissions', fields: ['need'] },
+  fashion: { label: 'Shop on WhatsApp', ask: 'ask about your collection', form: 'Ask about a piece', fields: ['need'] },
+  jewellery: { label: 'Book a Showroom Visit', ask: 'visit your showroom', form: 'Book a showroom visit', fields: ['date', 'need'] },
+  automotive: { label: 'Book a Service', ask: 'book a service', form: 'Book a service', fields: ['date', 'need'] },
+  'home-services': { label: 'Request a Quote', ask: 'get a quote', form: 'Request a quote', fields: ['need', 'date'] },
+  professional: { label: 'Book a Consultation', ask: 'book a consultation', form: 'Request a consultation', fields: ['date', 'need'] },
+  travel: { label: 'Plan My Trip', ask: 'plan a trip', form: 'Plan your trip', fields: ['date', 'guests', 'need'] },
+  events: { label: 'Check Your Date', ask: 'check availability for my event', form: 'Check your date', fields: ['date', 'guests', 'need'] },
+  retail: { label: 'Order on WhatsApp', ask: 'place an order', form: 'Send an order request', fields: ['need'] },
+  tech: { label: 'Request a Quote', ask: 'get a quote', form: 'Request a quote', fields: ['need'] },
+  garden: { label: 'Request a Quote', ask: 'get a quote', form: 'Request a quote', fields: ['need'] },
+  general: { label: 'Message Us on WhatsApp', ask: 'know more', form: 'Send an enquiry', fields: [] },
+};
+
+export function industryAction(industry) {
+  return ACTIONS[industry?.id] || ACTIONS.general;
+}
+
 const BY_ID = new Map(INDUSTRIES.map((i) => [i.id, i]));
 
 function haystack(site) {
@@ -455,6 +481,7 @@ export function industryBrief(industry) {
     `- Customers should feel: ${industry.feel}\n` +
     `- Picture for each section: hero = ${industry.imagery[0]}; about = ${industry.imagery[1]}; services = ${industry.imagery[2]}; detail = ${industry.imagery[3]}\n` +
     `- Content to cover: ${industry.content}\n` +
+    `- Main visitor action: "${industryAction(industry).label}" (opens WhatsApp with a ready message; the enquiry form below the page is titled "${industryAction(industry).form}")\n` +
     (industry.avoid ? `- Avoid for this class: ${industry.avoid}\n` : '') +
     'If the business does not fit this class exactly, take the closest related class and borrow most of its direction.'
   );

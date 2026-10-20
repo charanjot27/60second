@@ -140,21 +140,49 @@ export function hsl(hex) {
 
 const hueGap = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
 
-export function briefIssues(brief, memory) {
+export const SCRIPT_FONTS = {
+  pa: ['Noto Sans Gurmukhi', 'Noto Serif Gurmukhi', 'Mukta Mahee', 'Baloo Paaji 2', 'Anek Gurmukhi', 'Tiro Gurmukhi'],
+  hi: ['Noto Sans Devanagari', 'Noto Serif Devanagari', 'Mukta', 'Hind', 'Tiro Devanagari Hindi', 'Baloo 2', 'Anek Devanagari', 'Martel', 'Martel Sans', 'Rozha One', 'Yatra One', 'Kalam', 'Karma', 'Khand', 'Rajdhani', 'Teko', 'Poppins', 'Amita', 'Eczar', 'Sura', 'Biryani', 'Sarala', 'Palanquin'],
+};
+
+export function supportsScript(families, language) {
+  const list = SCRIPT_FONTS[language];
+  if (!list) return true;
+  return families.some((f) => list.some((x) => x.toLowerCase() === String(f || '').trim().toLowerCase()));
+}
+
+const close = (a, b, gap) => {
+  const x = hsl(a);
+  const y = hsl(b);
+  return Boolean(x && y && x.s > 0.2 && y.s > 0.2 && hueGap(x.h, y.h) < gap);
+};
+
+export function similarity(brief, d) {
+  const same = (a, b) => Boolean(a && b) && String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+  const shared = [];
+  if (same(brief?.fonts?.display?.family, d.displayFont)) shared.push(['display font', 2]);
+  if (same(brief?.fonts?.body?.family, d.bodyFont)) shared.push(['body font', 1]);
+  if (close(brief?.palette?.accent, d.accent, 18)) shared.push(['accent hue', 1.5]);
+  if (close(brief?.palette?.dominant, d.dominant, 18)) shared.push(['dominant hue', 1]);
+  if (same(brief?.seed?.heroLayout, d.seed?.heroLayout)) shared.push(['hero layout', 1]);
+  if (same(brief?.seed?.archetype, d.seed?.archetype)) shared.push(['style archetype', 1]);
+  if (same(brief?.mode, d.mode)) shared.push(['light or dark mode', 0.5]);
+  return { score: shared.reduce((n, [, w]) => n + w, 0), shared: shared.map(([k]) => k) };
+}
+
+export function briefIssues(brief, memory, { language } = {}) {
   const issues = [];
   const display = String(brief?.fonts?.display?.family || '').trim();
   if (BANNED_DISPLAY_FONTS.includes(display.toLowerCase())) {
     issues.push(`${display} is not allowed as the display font; choose a characterful display face.`);
   }
-  const recent = memory?.recent || [];
-  if (display && recent.slice(0, 15).some((d) => String(d.displayFont || '').toLowerCase() === display.toLowerCase())) {
-    issues.push(`the display font ${display} was already used by a recent site; choose a different one.`);
-  }
   const p = brief?.palette || {};
   const ratio = contrast(p.ink, p.bg);
   if (ratio !== null && ratio < 4.5) issues.push(`ink ${p.ink} on background ${p.bg} has contrast ${ratio.toFixed(1)}:1, it must be at least 4.5:1.`);
+  const muted = contrast(p.muted, p.bg);
+  if (muted !== null && muted < 4.5) issues.push(`secondary text ${p.muted} on background ${p.bg} has contrast ${muted.toFixed(1)}:1, it must be at least 4.5:1.`);
   const btn = contrast(p.onAccent, p.accent);
-  if (btn !== null && btn < 3) issues.push(`button text ${p.onAccent} on accent ${p.accent} has contrast ${btn.toFixed(1)}:1, it must be at least 3:1.`);
+  if (btn !== null && btn < 4.5) issues.push(`button text ${p.onAccent} on accent ${p.accent} has contrast ${btn.toFixed(1)}:1, it must be at least 4.5:1.`);
   if (/^#?0{6}$/i.test(String(p.ink || '')) && /^#?f{6}$/i.test(String(p.bg || ''))) {
     issues.push('pure black on pure white is not allowed; use a tinted ink and background.');
   }
@@ -166,12 +194,16 @@ export function briefIssues(brief, memory) {
   if (accent && accent.h >= 228 && accent.h <= 258 && accent.s > 0.45 && accent.l > 0.4 && accent.l < 0.75) {
     issues.push(`the accent ${p.accent} is generic tech indigo or blue; pick another hue family.`);
   }
-  if (accent && accent.s > 0.25) {
-    const close = recent
-      .slice(0, 8)
-      .map((d) => ({ hex: d.accent, c: hsl(d.accent) }))
-      .find((d) => d.c && d.c.s > 0.25 && hueGap(d.c.h, accent.h) < 18);
-    if (close) issues.push(`the accent ${p.accent} is in the same hue family as a recent site (${close.hex}); change the hue family, not just the shade.`);
+  const families = [brief?.fonts?.display?.family, brief?.fonts?.body?.family, brief?.fonts?.script?.family];
+  if (!supportsScript(families, language)) {
+    issues.push(`the page has ${language === 'pa' ? 'Punjabi (Gurmukhi)' : 'Hindi (Devanagari)'} text, but none of the fonts contain that script; add "script" with one of: ${SCRIPT_FONTS[language].slice(0, 6).join(', ')}.`);
+  }
+  for (const d of (memory?.recent || []).slice(0, 10)) {
+    const { score, shared } = similarity(brief, d);
+    if (score >= 3.5) {
+      issues.push(`the design repeats a recent ${d.category || 'site'} (same ${shared.join(', ')}); change at least two of the palette hue family, the fonts and the hero layout.`);
+      break;
+    }
   }
   return issues;
 }

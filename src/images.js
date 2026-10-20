@@ -5,7 +5,8 @@ import { processAndUpload } from './storage.js';
 
 const STYLE =
   'editorial photograph, shot on a full-frame camera, natural light, true-to-life colour, sharp focus, shallow depth of field, ' +
-  'realistic Indian setting, no text, no letters, no logos, no watermark, no distorted faces';
+  'realistic Indian setting, no watermark, no distorted faces';
+const NO_TEXT = ', no text, no letters, no logos';
 
 export const SHAPES = {
   wide: { ratio: '3:2', w: 1536, h: 1024, openai: '1536x1024' },
@@ -28,9 +29,31 @@ class ProviderError extends Error {
   }
 }
 
-const full = (prompt) => `${prompt}. ${STYLE}`.slice(0, 1800);
+const full = (prompt) => `${prompt}. ${STYLE}${/Exact text in the scene:/.test(prompt) ? '' : NO_TEXT}`.slice(0, 2000);
+
+let openaiChecked = null;
+
+async function openaiReady() {
+  openaiChecked ??= fetch(`https://api.openai.com/v1/models/${encodeURIComponent(config.images.openaiModel)}`, {
+    headers: { Authorization: `Bearer ${config.images.openaiKey}` },
+    signal: AbortSignal.timeout(15000),
+  })
+    .then((res) => {
+      if (res.status === 401 || res.status === 403 || res.status === 404) {
+        log.warn('openai image model not available to this key', { model: config.images.openaiModel, status: res.status });
+        return false;
+      }
+      return true;
+    })
+    .catch(() => {
+      openaiChecked = null;
+      return true;
+    });
+  return openaiChecked;
+}
 
 async function viaOpenAI(prompt, shape) {
+  if (!(await openaiReady())) throw new ProviderError(`OpenAI image model ${config.images.openaiModel} is not available to this key`, 403);
   const res = await fetch('https://api.openai.com/v1/images/generations', {
     method: 'POST',
     headers: { Authorization: `Bearer ${config.images.openaiKey}`, 'Content-Type': 'application/json' },
