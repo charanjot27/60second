@@ -1144,3 +1144,11 @@ test('enquiries carry the booking details the form asks for', () => {
   });
   assert.deepEqual(parseLead({ name: 'Ravi', phone: '9876543210', date: 'tomorrow', guests: '9999' }), { name: 'Ravi', phone: '9876543210', message: '' });
 });
+
+test('truck and transport businesses get their own class and action', async () => {
+  const { classifyIndustry, industryAction } = await import('../src/industry.js');
+  const truck = classifyIndustry({ businessName: 'Sandhu Roadlines', category: 'truck transport services', services: ['Full truck load', 'Part load'] });
+  assert.equal(truck.id, 'logistics');
+  assert.equal(industryAction(truck).label, 'Get a Transport Quote');
+  assert.equal(classifyIndustry({ businessName: 'Raj Car Care', category: 'car garage' }).id, 'automotive');
+});

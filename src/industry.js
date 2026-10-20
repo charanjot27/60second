@@ -17,6 +17,7 @@ const ICONS = {
   bag: '<path d="M5 8h14l-1 13H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',
   code: '<path d="M8 7l-5 5 5 5"/><path d="M16 7l5 5-5 5"/><path d="M14 4l-4 16"/>',
   leaf: '<path d="M5 19c0-8 5-14 15-14 0 10-6 15-14 15"/><path d="M5 19 13 11"/>',
+  truck: '<path d="M2 6h11v10H2z"/><path d="M13 9h4l4 4v3h-8"/><circle cx="6.5" cy="17.5" r="1.8"/><circle cx="16.5" cy="17.5" r="1.8"/>',
   store: '<path d="M3 9l1.5-5h15L21 9"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/><path d="M5 11v10h14V11"/><path d="M10 21v-5h4v5"/>',
 };
 
@@ -246,6 +247,27 @@ export const INDUSTRIES = [
     avoid: 'soft pastel styling',
   },
   {
+    id: 'logistics',
+    name: 'Transport and logistics: trucks, transporters, packers and movers, couriers, warehousing',
+    icon: 'truck',
+    keywords: ['truck', 'trucks', 'trucking', 'transport', 'transporter', 'transporters', 'logistics', 'cargo', 'freight', 'roadlines', 'roadways', 'carrier', 'goods carrier', 'packers', 'movers', 'packers and movers', 'shifting', 'relocation', 'tempo', 'tanker', 'trailer', 'container', 'courier', 'parcel', 'fleet', 'full truck load', 'part load', 'warehouse', 'warehousing', 'dispatch', 'loading'],
+    feel: 'reliability, scale, punctuality and safe handling of goods',
+    archetypes: ['Industrial workshop', 'Swiss International', 'Soft brutalism', 'Architectural blueprint', 'Cinematic dark', 'Newsprint'],
+    moods: ['saffron and charcoal', 'midnight navy and copper', 'rust and faded denim', 'mustard and teal', 'deep forest green and brass', 'warm stone monochrome with one vivid accent'],
+    types: ['condensed industrial display', 'wide extended sans display', 'chunky geometric grotesk display', 'monospace-accented technical display', 'slab serif with character'],
+    motions: ['snappy', 'energetic', 'cinematic'],
+    imagery: [
+      'a modern goods truck on an open Indian highway at sunrise, wide and powerful',
+      'goods being loaded carefully onto a truck at a loading dock, workers seen from behind',
+      'the services the owner listed, for example full and part loads, containers or packed household goods',
+      'a close detail of cargo straps, a tyre tread or neatly stacked cartons',
+    ],
+    queries: ['truck highway sunrise', 'truck loading dock', 'cargo truck fleet', 'cargo straps close up'],
+    content:
+      'the services (full load, part load, routes or regions served, vehicle types) only as stated, how booking works (share pickup, drop and load on WhatsApp, get a quote, goods move), what is needed for a quote, and an FAQ from the facts. Never invent routes, fleet size, rates, delivery times, insurance or tracking.',
+    avoid: 'soft pastel styling, playful pop, cartoon trucks',
+  },
+  {
     id: 'home-services',
     name: 'Home services: electricians, plumbers, repairs, cleaning, pest control',
     icon: 'wrench',
@@ -419,6 +441,7 @@ const ACTIONS = {
   fashion: { label: 'Shop on WhatsApp', ask: 'ask about your collection', form: 'Ask about a piece', fields: ['need'] },
   jewellery: { label: 'Book a Showroom Visit', ask: 'visit your showroom', form: 'Book a showroom visit', fields: ['date', 'need'] },
   automotive: { label: 'Book a Service', ask: 'book a service', form: 'Book a service', fields: ['date', 'need'] },
+  logistics: { label: 'Get a Transport Quote', ask: 'get a transport quote', form: 'Get a transport quote', fields: ['date', 'need'] },
   'home-services': { label: 'Request a Quote', ask: 'get a quote', form: 'Request a quote', fields: ['need', 'date'] },
   professional: { label: 'Book a Consultation', ask: 'book a consultation', form: 'Request a consultation', fields: ['date', 'need'] },
   travel: { label: 'Plan My Trip', ask: 'plan a trip', form: 'Plan your trip', fields: ['date', 'guests', 'need'] },
