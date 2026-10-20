@@ -1,6 +1,5 @@
 import sharp from 'sharp';
-import { config } from './config.js';
-import { callClaude, claudeEnabled } from './claude.js';
+import { cheapEnabled, cheapJson } from './assistant.js';
 import { log } from './log.js';
 
 const ROLES = ['logo', 'storefront', 'interior', 'product', 'work', 'property', 'food', 'team', 'menu', 'document', 'screenshot', 'reference', 'other'];
@@ -46,7 +45,7 @@ export function cleanRecord(raw, photo) {
 
 export async function inspectPhotos(photos, business = {}) {
   const own = (photos || []).filter((p) => !p.ai && (p.sm || p.lg));
-  if (!own.length || !claudeEnabled()) return photos;
+  if (!own.length || !cheapEnabled()) return photos;
   const pending = own.filter((p) => !p.asset);
   if (!pending.length) return photos;
   try {
@@ -58,8 +57,7 @@ export async function inspectPhotos(photos, business = {}) {
       content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: previews[i] } });
     });
     if (content.length === 1) return photos;
-    const raw = await callClaude({ model: config.ai.designModel, system: INSPECT_PROMPT, user: content, maxTokens: 6000, effort: 'low', timeoutMs: 120000 });
-    const json = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1));
+    const json = await cheapJson({ system: INSPECT_PROMPT, user: content, maxTokens: 4000, timeoutMs: 120000 });
     const records = new Map((json.assets || []).map((a) => [Number(a.n), a]));
     pending.forEach((p, i) => {
       if (previews[i] && records.has(i + 1)) p.asset = cleanRecord(records.get(i + 1), p);

@@ -106,6 +106,7 @@ function galleryItem(p, i, total, name, tag) {
 
 const SHELL_CSS = `*,*::before,*::after{box-sizing:border-box}html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
 body{margin:0;-webkit-font-smoothing:antialiased;padding-top:env(safe-area-inset-top)}img{max-width:100%;display:block}
+:where(a,button,input,textarea,select,summary,[tabindex]):focus-visible{outline:3px solid currentColor;outline-offset:3px}
 .sys-footer{padding:28px 20px calc(96px + env(safe-area-inset-bottom));text-align:center;font-size:14px;opacity:.85}
 .sys-footer p{margin:4px 0}.sys-footer a{font-weight:600}
 .bar{position:fixed;left:0;right:0;bottom:0;z-index:50;display:flex;gap:10px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:rgba(255,255,255,.92);color:#111;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid rgba(0,0,0,.12);transform:translateY(110%);transition:transform .25s ease}

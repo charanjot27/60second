@@ -55,7 +55,11 @@ Lato, Raleway), text and button contrast below 4.5:1, plain grey neutrals, tech 
 white, missing Gurmukhi or Devanagari fonts for Punjabi or Hindi pages, and a design that repeats a recent
 one in several ways at once (one shared font or colour alone is fine). Each finished site stores a design
 record (palette, fonts, layout, picture sources, audit findings, revisions and outcome) that later sites
-learn general lessons from; this is feedback-driven improvement, not model training.
+learn general lessons from. Once a day, after at least 3 new websites, a small model reads the anonymous
+records (outcome, praise or complaints, change requests, audit findings) and writes up to 12 versioned
+design lessons; every new art direction receives the lessons for its business class, so each owner starts
+from a better first version. Admins send `lessons` on WhatsApp to read them. This is feedback-driven
+improvement, not model training.
 
 A site is made in stages. Opus writes a business brief (offer, audience, problem, main action, evidence,
 facts, assumptions and missing information) and an art direction for that one business, with four
@@ -136,6 +140,8 @@ src/
 ├── domainshop.js  Domain ideas, quotes, purchase, DNS and renewals
 ├── assets.js      Owner photo inspection and placement
 ├── memory.js      Design records: avoids repeated combinations, feedback from owners
+├── lessons.js     Daily design lessons distilled from owner feedback
+├── assistant.js   Small-model router for chat, questions and photo review
 ├── designrules.js Design seeds and the hard design rules
 ├── industry.js    Business classes: favicon icon, themes, section pictures and content per class
 ├── leads.js       Enquiry form and Call-tap alerts to the owner
@@ -177,8 +183,8 @@ test/
 | `WA_PHONE_NUMBER_ID`, `WA_TOKEN` | Sending messages, downloading photos |
 | `WA_APP_SECRET` | Webhook signature check |
 | `WA_VERIFY_TOKEN` | Webhook registration |
-| `ANTHROPIC_API_KEY`, `ANTHROPIC_DESIGN_MODEL` | Opus for website design, page edits, photo review |
-| `ANTHROPIC_CHAT_MODEL` | Small model (Haiku by default) for reading answers and replying to questions; Gemini goes first when `GEMINI_API_KEY` is set |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_DESIGN_MODEL` | Opus for website design, page edits and picture briefs only |
+| `ANTHROPIC_CHAT_MODEL` | Backup small model (Haiku by default, empty to turn off) for chat, reading answers, photo checks and lessons; Gemini goes first when `GEMINI_API_KEY` is set |
 | `ANTHROPIC_DESIGN_MODEL` | Designer model, default `claude-opus-5-5` |
 | `MONGO_URL`, `MONGO_DB` | Database |
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Photo uploads |

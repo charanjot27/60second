@@ -3,7 +3,7 @@ import { config } from './config.js';
 import { log } from './log.js';
 import { processAndUpload } from './storage.js';
 import { aiImageBuffer, cropTo, shapeOf, SLOT_SHAPES } from './images.js';
-import { callClaude, claudeEnabled } from './claude.js';
+import { cheapEnabled, cheapJson } from './assistant.js';
 
 const SLOT_NAMES = [
   'HERO section, wide: the main offering of the business',
@@ -139,8 +139,7 @@ async function pickBest(slots, context) {
       content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: c.preview } });
     });
   });
-  const raw = await callClaude({ model: config.ai.designModel, system: PICK_PROMPT, user: content, maxTokens: 4000, effort: 'low', timeoutMs: 120000 });
-  const json = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1));
+  const json = await cheapJson({ system: PICK_PROMPT, user: content, maxTokens: 3000, timeoutMs: 120000 });
   const picks = new Map();
   const fixes = new Map();
   for (const p of json.picks || []) {
@@ -190,7 +189,7 @@ export async function sourceSiteImages({ prompts, queries = [], context = {}, ow
   let picks = new Map();
   const hasChoice = slots.some((c) => c.length > 1);
   context = { ...context, slots: SLOT_NAMES };
-  if (hasChoice && claudeEnabled()) {
+  if (hasChoice && cheapEnabled()) {
     try {
       picks = await pickBest(slots, { ...context, briefs });
     } catch (err) {

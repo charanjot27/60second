@@ -659,7 +659,7 @@ export async function createArtDirection(site, memory = null) {
     try {
       let brief = null;
       let issues = [];
-      for (let attempt = 0; attempt < 3; attempt++) {
+      for (let attempt = 0; attempt < 2; attempt++) {
         const user = attempt
           ? `${base}\n\nYour last art direction broke these rules, fix all of them:\n- ${issues.join('\n- ')}`
           : base;
@@ -700,7 +700,7 @@ export async function generateSitePage(site, brief) {
         let page = withScriptFonts(toPage(meta, css, body), site.language, brief?.fonts?.script?.family);
         if (!validPage(page)) throw new Error(`Generated page too small (${body.length} html, ${css.length} css)`);
         let qa = audit(page, site);
-        if (qa.issues.length) {
+        if (serious(qa.issues).length) {
           log.info('page audit found issues', { issues: qa.issues });
           const fixed = await repairPage(provider, user, raw, qa.issues, site, brief).catch((err) => {
             log.warn('page repair failed', { error: err.message });
@@ -708,7 +708,7 @@ export async function generateSitePage(site, brief) {
           });
           if (fixed) {
             const after = audit(fixed, site);
-            if (after.issues.length < qa.issues.length) {
+            if (serious(after.issues).length < serious(qa.issues).length) {
               page = fixed;
               qa = after;
             }
@@ -725,6 +725,9 @@ export async function generateSitePage(site, brief) {
   return null;
 }
 
+const SERIOUS = /never gave|exactly one|required id|\{\{action\}\}|placeholder/;
+const serious = (issues) => issues.filter((x) => SERIOUS.test(x));
+
 function audit(page, site) {
   const data = buildData(site, { formatPhone: (x) => x });
   return auditPage(page, site, fillTemplate(page.body, data));
@@ -733,7 +736,7 @@ function audit(page, site) {
 async function repairPage(provider, user, raw, issues, site, brief) {
   const fixRaw = await ask(provider, {
     system: PAGE_PROMPT,
-    user: `${user}\n\nYour page:\n${String(raw).slice(0, 200000)}\n\nAn automatic check found these problems. Fix every one and return the complete corrected page in exactly the same output format:\n- ${issues.join('\n- ')}`,
+    user: `${user}\n\nYour page:\n${String(raw).slice(0, 200000)}\n\nAn automatic check found these problems. Fix every one and return the complete corrected page in exactly the same output format:\n- ${serious(issues).join('\n- ')}`,
     maxTokens: 64000,
     effort: config.ai.designEffort,
     timeoutMs: provider === 'claude' ? 900000 : 180000,

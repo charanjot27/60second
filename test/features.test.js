@@ -113,7 +113,7 @@ function fakeCollection() {
   };
 }
 
-for (const name of ['sites', 'sessions', 'processed', 'usage', 'events', 'leads', 'designs', 'payments']) {
+for (const name of ['sites', 'sessions', 'processed', 'usage', 'events', 'leads', 'designs', 'payments', 'lessons']) {
   Object.assign(db[name], fakeCollection());
 }
 
@@ -1232,5 +1232,53 @@ test('an admin can start a new business website and switch between websites', as
   } finally {
     globalThis.fetch = realFetch;
     config.adminNumbers.pop();
+  }
+});
+
+test('owner feedback is distilled into design lessons that reach the next art direction', async () => {
+  const { distillLessons, currentLessons } = await import('../src/lessons.js');
+  const { designMemory, memoryNote } = await import('../src/memory.js');
+  const realFetch = globalThis.fetch;
+  const asked = [];
+  globalThis.fetch = async (url, init) => {
+    asked.push(JSON.parse(init.body));
+    return claudeStream(JSON.stringify({ lessons: [
+      { lesson: 'Bakery owners keep asking for bigger product photos; start with large photo-led layouts.', appliesTo: 'bakery', evidence: 4 },
+      { lesson: 'Owners on phones ask for shorter headlines; keep hero headlines under eight words.', appliesTo: 'all', evidence: 5 },
+      { lesson: 'One-off idea', appliesTo: 'all', evidence: 1 },
+    ] }));
+  };
+  try {
+    for (let i = 0; i < 4; i++) {
+      await db.designs.insertOne({ slug: `cake${i}`, category: 'Bakery', industry: 'bakery', displayFont: 'Fraunces', outcome: i ? 'live' : 'converted', revisions: 2, requests: ['make the cake photos bigger'], at: new Date() });
+    }
+    const doc = await distillLessons(new Date());
+    assert.equal(doc.version, 1);
+    assert.equal(doc.lessons.length, 2);
+    assert.match(JSON.stringify(asked[0]), /make the cake photos bigger/);
+    assert.equal(await distillLessons(new Date()), null);
+    assert.equal((await currentLessons()).version, 1);
+    const memory = await designMemory('Bakery', 'bakery');
+    assert.equal(memory.lessons.length, 2);
+    assert.match(memoryNote(memory), /LESSONS FROM EARLIER OWNERS[\s\S]*bigger product photos/);
+    assert.equal((await designMemory('Clinic', 'healthcare')).lessons.length, 1);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('photo review goes to Gemini first, with the pictures attached', async () => {
+  const { cheapJson } = await import('../src/assistant.js');
+  const restore = withConfig({ gemini: { apiKey: 'g-key' } });
+  const net = mockFetch([['generativelanguage.googleapis.com', { candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }] }]]);
+  try {
+    const out = await cheapJson({ system: 'x', user: [{ type: 'text', text: 'Photo 1:' }, { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'AAAA' } }] });
+    assert.equal(out.ok, true);
+    const body = JSON.parse(net.calls[0].body);
+    assert.deepEqual(body.contents[0].parts, [{ text: 'Photo 1:' }, { inline_data: { mime_type: 'image/jpeg', data: 'AAAA' } }]);
+    assert.ok(!net.calls.some((c) => c.url.includes('anthropic')));
+  } finally {
+    net.restore();
+    restore();
   }
 });

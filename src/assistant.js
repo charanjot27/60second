@@ -15,7 +15,7 @@ export function cheapEnabled() {
   return geminiEnabled() || (claudeEnabled() && Boolean(config.ai.chatModel));
 }
 
-export async function cheapJson({ system, user, maxTokens = 1500, timeoutMs = 30000 }) {
+export async function cheapJson({ system, user, maxTokens = 1500, timeoutMs = 60000 }) {
   const attempts = [];
   if (geminiEnabled()) attempts.push(['gemini', () => callGemini({ system, user, maxTokens, temperature: 0.3, timeoutMs, json: true })]);
   if (claudeEnabled() && config.ai.chatModel) {
@@ -40,8 +40,9 @@ Decide what the owner wants:
 - "images": they want only pictures redrawn or changed, nothing else. Give one detailed photorealistic brief per picture to redraw: slot 1 = hero (wide), 2 = about (tall), 3 = services (wide), 4 = detail (square).
 - "change": anything else that changes the website: wording, colours, fonts, layout, sections, facts, services, adding or removing things.
 When unsure between "change" and anything else, choose "change".
+Also note how the owner feels about the website: "positive" (they like it, praise it), "negative" (they dislike it, say it looks bad or wrong) or "none".
 Reply in the owner's language with JSON only:
-{"intent":"question|chat|images|change","answer":"reply for question or chat, else empty","images":[{"slot":1,"prompt":"brief"}],"summary":"for images: one short sentence for the owner"}`;
+{"intent":"question|chat|images|change","feedback":"positive|negative|none","answer":"reply for question or chat, else empty","images":[{"slot":1,"prompt":"brief"}],"summary":"for images: one short sentence for the owner"}`;
 
 export async function routeMessage(text, context) {
   const out = await cheapJson({ system: ROUTER_PROMPT, user: `CONTEXT:\n${JSON.stringify(context)}\n\nOWNER MESSAGE:\n"""${String(text).slice(0, 1200)}"""`, maxTokens: 1200 });
@@ -52,6 +53,7 @@ export async function routeMessage(text, context) {
     .slice(0, 4);
   return {
     intent: intent === 'images' && !images.length ? 'change' : intent,
+    feedback: ['positive', 'negative'].includes(out.feedback) ? out.feedback : 'none',
     answer: String(out.answer || '').trim().slice(0, 700),
     images,
     summary: String(out.summary || '').trim().slice(0, 300),

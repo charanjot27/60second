@@ -1,4 +1,5 @@
 import { designs } from './db.js';
+import { currentLessons, lessonsFor } from './lessons.js';
 
 const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -55,7 +56,11 @@ export async function markOutcome(slug, outcome) {
   await designs.findOneAndUpdate({ slug }, { $set: { outcome, outcomeAt: new Date() } }, { sort: { at: -1 } });
 }
 
-export async function designMemory(category) {
+export async function markFeedback(slug, feedback) {
+  await designs.findOneAndUpdate({ slug }, { $set: { feedback, feedbackAt: new Date() } }, { sort: { at: -1 } });
+}
+
+export async function designMemory(category, industryId) {
   const recent = await designs.find({}).sort({ at: -1 }).limit(15).toArray();
   let liked = [];
   if (category) {
@@ -63,7 +68,8 @@ export async function designMemory(category) {
     liked = await designs.find({ ...sameKind, outcome: 'converted' }).sort({ at: -1 }).limit(4).toArray();
   }
   const rejected = await designs.find({ outcome: 'rejected' }).sort({ at: -1 }).limit(6).toArray();
-  return { recent, liked, rejected };
+  const learned = lessonsFor(await currentLessons().catch(() => null), industryId);
+  return { recent, liked, rejected, lessons: learned };
 }
 
 export function memoryNote(memory) {
@@ -89,6 +95,12 @@ export function memoryNote(memory) {
     lines.push(
       'Designs whose owners went on to pay, a feedback signal rather than proof of design quality (learn the general principles, never copy them):',
       ...memory.liked.map((d) => `- ${d.concept} (${d.mode}, accent ${d.accent}, ${d.displayFont} + ${d.bodyFont})`)
+    );
+  }
+  if (memory.lessons?.length) {
+    lines.push(
+      'LESSONS FROM EARLIER OWNERS (apply these so this website starts better than the ones before it):',
+      ...memory.lessons.map((l) => `- ${l.lesson} (seen ${l.evidence} times)`)
     );
   }
   if (memory.rejected?.length) {

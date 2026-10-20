@@ -25,6 +25,7 @@ import {
 } from './billing.js';
 import { plans, money, priceLabel } from './plans.js';
 import { domainShopEnabled, quoteRenewal, sweepDomainRenewals } from './domainshop.js';
+import { distillLessons } from './lessons.js';
 import { verifyRazorpayWebhook, verifyLinkCallback, verifySubscriptionCallback } from './razorpay.js';
 import { sweepDomains } from './domains.js';
 import { handleLead, handleTap } from './leads.js';
@@ -252,6 +253,7 @@ async function sweep() {
   await sweepTrials().catch((err) => log.error('trial sweep failed', err));
   await sweepPlans().catch((err) => log.error('plan sweep failed', err));
   await sweepDomainRenewals().catch((err) => log.error('domain renewal sweep failed', err));
+  await distillLessons().catch((err) => log.warn('lesson update failed', { error: err.message }));
   await sweepDomains().catch((err) => log.error('domain sweep failed', err));
 }
 

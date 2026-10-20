@@ -4,6 +4,15 @@ export function geminiEnabled() {
   return Boolean(config.gemini.apiKey);
 }
 
+function toParts(user) {
+  if (!Array.isArray(user)) return [{ text: String(user) }];
+  return user.map((block) =>
+    block.type === 'image'
+      ? { inline_data: { mime_type: block.source.media_type, data: block.source.data } }
+      : { text: String(block.text || '') }
+  );
+}
+
 export async function callGemini({ system, user, maxTokens = 2000, temperature = 0.7, timeoutMs = 30000, json = false }) {
   const generationConfig = {
     temperature,
@@ -19,7 +28,7 @@ export async function callGemini({ system, user, maxTokens = 2000, temperature =
       headers: { 'x-goog-api-key': config.gemini.apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: system }] },
-        contents: [{ role: 'user', parts: [{ text: user }] }],
+        contents: [{ role: 'user', parts: toParts(user) }],
         generationConfig,
       }),
       signal: AbortSignal.timeout(timeoutMs),

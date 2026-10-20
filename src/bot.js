@@ -15,7 +15,8 @@ import { inspectPhotos, arrangeOwnPhotos } from './assets.js';
 import { callClaudeRaw, claudeEnabled } from './claude.js';
 import { cheapEnabled, routeMessage } from './assistant.js';
 import { createArtDirection, generateSitePage, editSite } from './generate.js';
-import { designMemory, recordDesign, markOutcome, noteRevision } from './memory.js';
+import { designMemory, recordDesign, markOutcome, markFeedback, noteRevision } from './memory.js';
+import { currentLessons } from './lessons.js';
 import { transcribe } from './voice.js';
 import {
   billingEnabled,
@@ -79,6 +80,8 @@ export async function handleMessage(msg) {
   const isAdmin = config.adminNumbers.includes(String(msg.from));
   if (cmd === 'model check' && isAdmin) {
     result = await modelCheck(s);
+  } else if (cmd === 'lessons' && isAdmin) {
+    result = await showLessons(s);
   } else if (isAdmin && ADMIN_CMD.test(cmd)) {
     result = await adminCommand(s, cmd);
   } else if (NEW_SITE.has(cmd)) {
@@ -139,6 +142,16 @@ async function adminCommand(s, cmd) {
   const state = accessState(site);
   const left = site.trialEndsAt ? ` · trial ends ${new Date(site.trialEndsAt).toISOString().slice(0, 16).replace('T', ' ')} UTC` : '';
   return sendText(s._id, `${slug}: ${state} · plan ${site.plan || 'free'}${left}\n${url}`);
+}
+
+async function showLessons(s) {
+  const doc = await currentLessons();
+  if (!doc) return sendText(s._id, 'No lessons yet. They are written once a day after at least 3 new websites.');
+  return sendText(
+    s._id,
+    `🧠 Design lessons v${doc.version} (from ${doc.basedOn} websites, ${new Date(doc.at).toISOString().slice(0, 10)}):\n\n` +
+      doc.lessons.map((l, i) => `${i + 1}. ${l.lesson}${l.appliesTo !== 'all' ? ` [${l.appliesTo}]` : ''} (${l.evidence}×)`).join('\n')
+  );
 }
 
 async function modelCheck(s) {
@@ -785,8 +798,8 @@ async function publish(s) {
 
 async function designSite(site, ownerPhone) {
   const design = makeDesign(site, String(Date.now()));
-  const memory = await designMemory(site.category).catch(() => null);
   const industry = classifyIndustry(site);
+  const memory = await designMemory(site.category, industry.id).catch(() => null);
   site.photos = await inspectPhotos(site.photos, { name: site.businessName, category: site.category, city: site.city, services: site.services });
   const brief = await createArtDirection(site, memory);
   const prompts =
@@ -874,6 +887,7 @@ async function liveText(s, site, text) {
       return null;
     });
   }
+  if (route?.feedback === 'positive' || route?.feedback === 'negative') markFeedback(site.slug, route.feedback).catch(() => {});
   if (route && (route.intent === 'question' || route.intent === 'chat') && route.answer) {
     track(s._id, 'answered', { intent: route.intent });
     return sendText(s._id, route.answer);
