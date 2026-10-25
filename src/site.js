@@ -72,6 +72,8 @@ async function findSite(key, query) {
           _id: site._id,
           slug: site.slug,
           status: site.status || 'active',
+          plan: site.plan,
+          billing: site.billing?.paidUntil ? { paidUntil: site.billing.paidUntil } : undefined,
           trialEndsAt: site.trialEndsAt,
           businessName: site.businessName,
           language: site.language,
@@ -140,6 +142,9 @@ export async function serveSite(req, res) {
     const state = accessState(found.site);
     if (state === 'suspended') return send(res, 410, renderSuspended());
     if (state === 'expired' || state === 'cancelled') return send(res, 402, renderPaused(found.site));
+    if (found.slug && found.site.customDomain && !devSlug) {
+      return res.set('Cache-Control', 'public, max-age=300').redirect(302, `https://${found.site.customDomain}/`);
+    }
     return send(res, 200, found.html, state === 'trial' ? 30 : 60);
   } catch (err) {
     log.error('site render failed', err, { host });

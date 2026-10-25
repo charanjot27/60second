@@ -1390,3 +1390,34 @@ test('by default owners buy the domain themselves and the bot connects it', asyn
     restore();
   }
 });
+
+test('a connected domain takes over: the free address forwards to it, and stops when the domain is removed', async () => {
+  const { serveSite, invalidate } = await import('../src/site.js');
+  const call = (hostname) =>
+    new Promise((resolve) => {
+      const res = {
+        headers: {},
+        statusCode: 200,
+        set(h) { Object.assign(this.headers, h); return this; },
+        status(c) { this.statusCode = c; return this; },
+        type() { return this; },
+        send(b) { resolve({ status: this.statusCode, body: b, headers: this.headers }); },
+        redirect(c, url) { resolve({ status: c, url, headers: this.headers }); },
+        sendStatus(c) { resolve({ status: c }); },
+        end() { resolve({ status: this.statusCode }); },
+      };
+      serveSite({ method: 'GET', path: '/', hostname, query: {} }, res);
+    });
+  await db.sites.insertOne({ slug: 'gilldhaba', ownerPhone: '919000000090', businessName: 'Gill Dhaba', status: 'active', plan: 'free', customDomain: 'gilldhaba.com', services: [] });
+  const forwarded = await call('gilldhaba.site60.in');
+  assert.equal(forwarded.status, 302);
+  assert.equal(forwarded.url, 'https://gilldhaba.com/');
+  const own = await call('gilldhaba.com');
+  assert.equal(own.status, 200);
+  assert.match(own.body, /Gill Dhaba/);
+  assert.equal((await call('www.gilldhaba.com')).status, 200);
+  await db.sites.updateOne({ slug: 'gilldhaba' }, { $unset: { customDomain: '' } });
+  invalidate('gilldhaba', 'gilldhaba.com');
+  assert.equal((await call('gilldhaba.site60.in')).status, 200);
+  assert.equal((await call('gilldhaba.com')).status, 404);
+});

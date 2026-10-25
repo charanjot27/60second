@@ -1039,7 +1039,7 @@ function askCancel(s, site) {
 const isAdminPhone = (phone) => config.adminNumbers.includes(String(phone));
 
 function domainAllowed(s, site) {
-  return isAdminPhone(s._id) || (site.plan === 'paid' && accessState(site) === 'live');
+  return isAdminPhone(s._id) || !billingEnabled() || (site.plan === 'paid' && accessState(site) === 'live');
 }
 
 async function domainMenu(s, site, renewing) {
