@@ -1039,7 +1039,7 @@ test('owners pick a domain on WhatsApp and get a payment link', async () => {
     await db.sessions.insertOne({ _id: from, state: 'LIVE', slug: 'dhillonauto', draft: {} });
     await say({ text: 'domain' });
     assert.ok(net.calls.at(-1).body.includes('domain_find'));
-    await say({ type: 'interactive', buttonId: 'domain_find' });
+    await say({ type: 'interactive', buttonId: 'domain_find', text: 'Find a new domain' });
     assert.ok(net.calls.some((c) => c.body.includes('1. *dhillonauto.com*')));
     assert.equal((await db.sessions.findOne({ _id: from })).state, 'PICK_DOMAIN');
     await say({ text: '2' });
@@ -1371,7 +1371,7 @@ test('by default owners buy the domain themselves and the bot connects it', asyn
     assert.equal(shop.domainShopEnabled(), false);
     await db.sites.insertOne({ slug: 'gillsweets', ownerPhone: from, businessName: 'Gill Sweets', city: 'Moga', category: 'sweet shop', industry: 'bakery', status: 'active', plan: 'paid', billing: { paidUntil: new Date(Date.now() + 20 * 864e5) } });
     await db.sessions.insertOne({ _id: from, state: 'LIVE', slug: 'gillsweets', draft: {} });
-    await say({ type: 'interactive', buttonId: 'domain_find' });
+    await say({ type: 'interactive', buttonId: 'domain_find', text: 'Find a new domain' });
     const list = net.calls.find((c) => c.url.includes('graph.facebook.com') && c.body.includes('"type":"list"'));
     assert.ok(list.body.includes('dom:gillsweets.in'));
     assert.ok(!list.body.includes('dom:gillsweets.com'));

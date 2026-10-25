@@ -456,7 +456,7 @@ const HANDLERS = {
     if (cmd.startsWith('dom:')) return offerDomain(s, site, cmd.slice(4));
     if (cmd.startsWith('bought:')) return handleDomain(s, site, cmd.slice(7));
     if (/^(transfer|move) (my )?domain$/.test(cmd)) return requestTransfer(s, site);
-    if (DOMAIN_MENU.has(cmd) || wantsDomain(text)) return domainMenu(s, site, /renew/.test(cmd));
+    if (DOMAIN_MENU.has(cmd) || (!msg.buttonId && wantsDomain(text))) return domainMenu(s, site, /renew/.test(cmd));
     if (cmd === 'domain_find') return showDomainIdeas(s, site);
     if (cmd === 'domain_have') return sendText(s._id, 'Great! Send it like this and I will guide you: *connect domain yourname.com*');
     if (cmd === 'domain_skip') return sendText(s._id, `👍 You'll keep ${siteUrl(site.slug)}. Send *domain* anytime to get your own.`);
