@@ -218,7 +218,7 @@ export async function refundPayment(pay) {
 
 async function offerDomainAfterPayment(site) {
   const shop = await import('./domainshop.js');
-  if (!shop.domainShopEnabled()) return;
+  if (!shop.domainShopEnabled() && !shop.domainIdeasEnabled()) return;
   const fresh = await sites.findOne({ _id: site._id });
   if (!fresh || fresh.domain?.name || fresh.customDomain || fresh.domainOffered) return;
   await sites.updateOne({ _id: site._id }, { $set: { domainOffered: new Date() } });

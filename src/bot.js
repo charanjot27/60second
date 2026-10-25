@@ -35,7 +35,7 @@ import {
   createPayment,
 } from './billing.js';
 import { domainsEnabled, normalizeDomain, connectDomain } from './domains.js';
-import { domainShopEnabled, findDomains, quoteDomain, domainPaid, domainPayLink, offerText, domainRows } from './domainshop.js';
+import { domainShopEnabled, domainIdeasEnabled, findDomains, quoteDomain, domainPaid, domainPayLink, offerText, domainRows, priceText, buyLinks } from './domainshop.js';
 import { money } from './plans.js';
 import { t, LANGS, WELCOME, LANG_BUTTONS } from './i18n.js';
 import { formatPhone } from './render.js';
@@ -452,6 +452,7 @@ const HANDLERS = {
     if (cmd === 'leads' || cmd === 'enquiries') return showLeads(s, site);
 
     if (cmd.startsWith('dom:')) return offerDomain(s, site, cmd.slice(4));
+    if (cmd.startsWith('bought:')) return handleDomain(s, site, cmd.slice(7));
     if (/^(transfer|move) (my )?domain$/.test(cmd)) return requestTransfer(s, site);
     if (DOMAIN_MENU.has(cmd)) return domainMenu(s, site, cmd === 'renew domain');
     if (cmd === 'domain_find') return showDomainIdeas(s, site);
@@ -557,6 +558,7 @@ const HANDLERS = {
     if (!site) return HANDLERS.NEW(s);
     const n = Number(cmd);
     if (cmd.startsWith('dom:')) return offerDomain(s, site, cmd.slice(4));
+    if (cmd.startsWith('bought:')) return handleDomain(s, site, cmd.slice(7));
     if (Number.isInteger(n) && n >= 1 && n <= choices.length) return offerDomain(s, site, choices[n - 1]);
     const typed = normalizeDomain(text);
     if (typed && /\./.test(text)) return offerDomain(s, site, typed);
@@ -1041,7 +1043,7 @@ function domainAllowed(s, site) {
 }
 
 async function domainMenu(s, site, renewing) {
-  if (!domainShopEnabled()) {
+  if (!domainShopEnabled() && !domainIdeasEnabled()) {
     return sendText(s._id, 'To use your own domain, send: *connect domain yourname.com*');
   }
   if (site.domain?.name && !site.domain.expired && !renewing) {
@@ -1050,7 +1052,10 @@ async function domainMenu(s, site, renewing) {
       `🌐 Your domain is *${site.domain.name}*, paid until *${shortDate(site.domain.expiresAt)}*. I'll remind you before it expires. To renew early: ${domainPayLink(site.slug)}`
     );
   }
-  if (site.domain?.name) return sendText(s._id, `🌐 Renew *${site.domain.name}* for 1 year here:\n${domainPayLink(site.slug)}`);
+  if (site.domain?.name && domainShopEnabled()) return sendText(s._id, `🌐 Renew *${site.domain.name}* for 1 year here:\n${domainPayLink(site.slug)}`);
+  if (site.customDomain && !renewing) {
+    return sendText(s._id, `🌐 Your website is on *${site.customDomain}*. To use a different domain, send *connect domain newname.com*.`);
+  }
   return sendButtons(
     s._id,
     `🌐 Want your own web address instead of ${site.slug}.${ROOT}?\n\nPick a new one and I'll set everything up, or connect one you already own.`,
@@ -1071,7 +1076,7 @@ async function requestTransfer(s, site) {
 }
 
 async function showDomainIdeas(s, site) {
-  if (!domainShopEnabled()) return domainMenu(s, site);
+  if (!domainShopEnabled() && !domainIdeasEnabled()) return domainMenu(s, site);
   if (!domainAllowed(s, site)) {
     return sendText(s._id, `🌐 Your own domain comes with a paid plan. Keep your site online first, then send *domain* again:\n${payLink(site.slug)}`);
   }
@@ -1090,7 +1095,7 @@ async function showDomainIdeas(s, site) {
   s.draft = { domains: list.map((d) => d.domain) };
   return sendList(
     s._id,
-    `🌐 These are free right now (price for the first year):\n\n${list.map((d, i) => `${i + 1}. *${d.domain}* · ${money(d.charge)}`).join('\n')}\n\n` +
+    `🌐 These are free right now:\n\n${list.map((d, i) => `${i + 1}. *${d.domain}* · ${priceText(d)}`).join('\n')}\n\n` +
       'Tap *See names* and pick one, reply with its number, or type another name, for example: *mybusiness.com*',
     'See names',
     domainRows(list)
@@ -1100,7 +1105,7 @@ async function showDomainIdeas(s, site) {
 async function offerDomain(s, site, input) {
   const domain = normalizeDomain(input);
   if (!domain) return sendText(s._id, 'That name looks wrong. Send it like: *check mybusiness.com*');
-  if (!domainShopEnabled()) return handleDomain(s, site, domain);
+  if (!domainShopEnabled()) return selfBuy(s, site, domain);
   if (!domainAllowed(s, site)) {
     return sendText(s._id, `🌐 Your own domain comes with a paid plan. Keep your site online first, then send *domain* again:\n${payLink(site.slug)}`);
   }
@@ -1131,6 +1136,25 @@ async function offerDomain(s, site, input) {
     s._id,
     `${offerText(order)}\n\n👉 Tap to pay by ${payMethods()}. I'll buy it, set it up and connect it for you; if anything goes wrong you get a full refund:\n${checkout}`
   );
+}
+
+async function selfBuy(s, site, domain) {
+  if (!domainIdeasEnabled()) return handleDomain(s, site, domain);
+  if (!domainAllowed(s, site)) {
+    return sendText(s._id, `🌐 Your own domain comes with a paid plan. Keep your site online first, then send *domain* again:\n${payLink(site.slug)}`);
+  }
+  s.state = 'LIVE';
+  s.draft = {};
+  await sendText(
+    s._id,
+    `🌐 Buy *${domain}* in your own name, paid directly to the domain company, from any of these (usually about $10 to $15 a year):\n\n` +
+      buyLinks(domain).map((l) => `• ${l.name}: ${l.url}`).join('\n') +
+      `\n\nIt stays yours, and you renew it with them each year. When you have bought it, tap the button and I'll connect it to your website.`
+  );
+  return sendButtons(s._id, `Bought *${domain}*?`, [
+    { id: `bought:${domain}`, title: 'I bought it ✅' },
+    { id: 'domain_find', title: 'Pick another name' },
+  ]);
 }
 
 async function handleDomain(s, site, input) {

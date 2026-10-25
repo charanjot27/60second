@@ -81,8 +81,12 @@ Every payment is re-checked with the provider's API (status, amount, currency, p
 and each payment id is counted once. Owners get a reminder three days before their paid time ends.
 Unpaid trials, ended periods and cancelled plans go offline at render time and in a 5-minute background sweep.
 
-Right after an owner's first payment the bot offers fitting domain names as a WhatsApp list; one tap opens
-checkout directly. Owners on a paid plan can also send `domain` at any time. The bot suggests names that fit the
+Right after an owner's first payment the bot offers fitting domain names as a WhatsApp list, checked live
+against the registries (RDAP, no account needed). By default (`DOMAIN_MODE=self`) the owner taps a name, buys
+it in their own name from Porkbun, GoDaddy or Namecheap through prefilled links, taps "I bought it" and the
+bot connects it and confirms when it is live. With `DOMAIN_MODE=resell` and Porkbun keys, one tap opens our
+checkout and the bot buys the name from prepaid Porkbun credit. Owners on a paid plan can also send `domain`
+at any time. The bot suggests names that fit the
 business, checks them live on Porkbun and shows only free ones with a yearly price (Porkbun price plus
 `DOMAIN_MARGIN`). After payment it registers the name, points its DNS at the site and connects it.
 If the name is taken or its price changed before purchase, the payment is refunded automatically.
@@ -201,7 +205,8 @@ test/
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Payments by card, Apple Pay and Google Pay; webhook at `https://ROOT_DOMAIN/stripe/webhook` |
 | `PRICE_CURRENCY`, `PRICE_MONTHLY`, `PRICE_BIWEEKLY` | Plan prices ($9 a month and $5 every 2 weeks by default); 0 hides a plan |
 | `PAYMENTS=razorpay`, `RAZORPAY_*` | Razorpay instead of Stripe (UPI); webhook at `https://ROOT_DOMAIN/razorpay/webhook` |
-| `PORKBUN_API_KEY`, `PORKBUN_SECRET_KEY` | Buying and renewing owners' domains |
+| `DOMAIN_MODE` | `self` (default: owners buy their own domain, the bot connects it) or `resell` (the bot buys it with Porkbun credit) |
+| `PORKBUN_API_KEY`, `PORKBUN_SECRET_KEY` | Resell mode, and prices next to suggested names |
 | `DOMAIN_MARGIN`, `USD_RATE`, `DOMAIN_MAX_USD` | Domain pricing |
 | `TRIAL_HOURS`, `PRICE_LABEL` | Free trial length and the price shown in chat |
 | `TRIALS=on` | Trials without payment (demo mode). Admins send `activate <site>`, `extend <site> <hours>`, `pause <site>` or `status <site>` on WhatsApp |

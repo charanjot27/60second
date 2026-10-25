@@ -56,7 +56,10 @@ export function dnsInstructions(domain) {
     `🌐 To connect *${domain}*, open the DNS settings where you bought it (GoDaddy, Hostinger, Namecheap and so on) and add these two records:\n\n` +
     `1️⃣ Type *A* · Name *@* · Value *${config.render.apexIp}*\n` +
     `2️⃣ Type *CNAME* · Name *www* · Value *${target}*\n\n` +
-    `Delete any other *A* record for *@* first. GoDaddy: My Products → your domain → DNS → Add.\n\n` +
+    `Delete any other *A* record for *@* first.\n` +
+    `• GoDaddy: My Products → your domain → DNS → Add New Record\n` +
+    `• Porkbun: Domain Management → your domain → DNS\n` +
+    `• Namecheap: Domain List → Manage → Advanced DNS → Add New Record\n\n` +
     `I will check every few minutes and message you here as soon as ${domain} is live (usually 15 to 60 minutes).`
   );
 }

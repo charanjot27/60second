@@ -936,6 +936,7 @@ test('domain ideas fit the business and prices include the margin', () => {
 
 test('a paid domain is bought once, pointed at the site and renewed on time', async () => {
   const restore = withConfig({
+    domains: { mode: 'resell' },
     porkbun: { apiKey: 'pk1_x', secretKey: 'sk1_x' },
     render: { apiKey: 'rnd', serviceId: 'srv-1', hostname: 'site60.onrender.com' },
   });
@@ -1005,7 +1006,8 @@ test('a paid domain is bought once, pointed at the site and renewed on time', as
 });
 
 test('a domain payment that does not match the order buys nothing', async () => {
-  const restore = withConfig({ porkbun: { apiKey: 'pk1_x', secretKey: 'sk1_x' }, render: { apiKey: 'rnd', serviceId: 'srv-1', hostname: 'h' } });
+  const restore = withConfig({ domains: { mode: 'resell' },
+    porkbun: { apiKey: 'pk1_x', secretKey: 'sk1_x' }, render: { apiKey: 'rnd', serviceId: 'srv-1', hostname: 'h' } });
   const net = mockFetch([['api.porkbun.com', { status: 'SUCCESS', response: { avail: 'yes', price: '10.73', additional: { renewal: { price: '10.73' } } } }]]);
   try {
     await db.sites.insertOne({ slug: 'domshop2', ownerPhone: '919000000030', businessName: 'Shop Two', status: 'active', plan: 'paid' });
@@ -1022,7 +1024,8 @@ test('a domain payment that does not match the order buys nothing', async () => 
 });
 
 test('owners pick a domain on WhatsApp and get a payment link', async () => {
-  const restore = withConfig({ porkbun: { apiKey: 'pk1_x', secretKey: 'sk1_x' }, render: { apiKey: 'rnd', serviceId: 'srv-1', hostname: 'h' } });
+  const restore = withConfig({ domains: { mode: 'resell' },
+    porkbun: { apiKey: 'pk1_x', secretKey: 'sk1_x' }, render: { apiKey: 'rnd', serviceId: 'srv-1', hostname: 'h' } });
   const info = { avail: 'yes', price: '10.73', premium: 'no', additional: { renewal: { price: '10.73' } } };
   const net = mockFetch([
     ['/domain/checkDomain/', { status: 'SUCCESS', response: info }],
@@ -1284,7 +1287,8 @@ test('photo review goes to Gemini first, with the pictures attached', async () =
 });
 
 test('one tap on a suggested domain gives a checkout link, a taken domain is refunded automatically', async () => {
-  const restore = withConfig({ porkbun: { apiKey: 'pk1_x', secretKey: 'sk1_x' }, render: { apiKey: 'rnd', serviceId: 'srv-1', hostname: 'h' } });
+  const restore = withConfig({ domains: { mode: 'resell' },
+    porkbun: { apiKey: 'pk1_x', secretKey: 'sk1_x' }, render: { apiKey: 'rnd', serviceId: 'srv-1', hostname: 'h' } });
   let available = 'yes';
   let order;
   const net = mockFetch([
@@ -1321,7 +1325,8 @@ test('one tap on a suggested domain gives a checkout link, a taken domain is ref
 });
 
 test('the first plan payment offers domains once', async () => {
-  const restore = withConfig({ porkbun: { apiKey: 'pk1_x', secretKey: 'sk1_x' }, render: { apiKey: 'rnd', serviceId: 'srv-1', hostname: 'h' } });
+  const restore = withConfig({ domains: { mode: 'resell' },
+    porkbun: { apiKey: 'pk1_x', secretKey: 'sk1_x' }, render: { apiKey: 'rnd', serviceId: 'srv-1', hostname: 'h' } });
   const net = mockFetch([
     ['/domain/checkDomain', { status: 'SUCCESS', domains: { 'bajwagym.com': { avail: 'yes', price: '10.73', additional: { renewal: { price: '10.73' } } } } }],
     ['/checkout/sessions/', (u) => ({ id: u.split('/').pop(), status: 'complete', payment_status: 'paid', mode: 'payment', amount_total: 900, currency: 'usd', payment_intent: `pi_${u.split('/').pop()}`, metadata: { slug: 'bajwagym', kind: 'service', plan: 'monthly' } })],
@@ -1335,8 +1340,52 @@ test('the first plan payment offers domains once', async () => {
     const lists = net.calls.filter((c) => c.url.includes('graph.facebook.com') && c.body.includes('"type":"list"'));
     assert.equal(lists.length, 1);
     assert.ok(lists[0].body.includes('dom:bajwagym.com'));
-    assert.ok(lists[0].body.includes('moves back to bajwagym'));
+    assert.ok(lists[0].body.includes('stays on bajwagym'));
   } finally {
+    net.restore();
+    restore();
+  }
+});
+
+test('by default owners buy the domain themselves and the bot connects it', async () => {
+  const restore = withConfig({ render: { apiKey: 'rnd', serviceId: 'srv-1', hostname: 'site60.onrender.com' } });
+  const net = mockFetch([
+    ['data.iana.org/rdap/dns.json', { services: [[['com', 'net'], ['https://rdap.verisign.com/com/v1/']], [['in'], ['https://rdap.registry.in/']]] }],
+    ['rdap.verisign.com/com/v1/domain/gillsweets.com', () => ({ ldhName: 'gillsweets.com' })],
+    ['api.render.com', {}],
+  ]);
+  const realFetch = globalThis.fetch;
+  const wrapped = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    if (u.includes('rdap.') && !u.endsWith('gillsweets.com') && !u.includes('iana')) {
+      wrapped(url, init);
+      return new Response('{}', { status: 404 });
+    }
+    return wrapped(url, init);
+  };
+  const { handleMessage } = await import('../src/bot.js');
+  const from = '919000000080';
+  const say = (m) => handleMessage({ id: crypto.randomUUID(), from, name: 'G', type: 'text', text: '', ...m });
+  try {
+    assert.equal(shop.domainShopEnabled(), false);
+    await db.sites.insertOne({ slug: 'gillsweets', ownerPhone: from, businessName: 'Gill Sweets', city: 'Moga', category: 'sweet shop', industry: 'bakery', status: 'active', plan: 'paid', billing: { paidUntil: new Date(Date.now() + 20 * 864e5) } });
+    await db.sessions.insertOne({ _id: from, state: 'LIVE', slug: 'gillsweets', draft: {} });
+    await say({ type: 'interactive', buttonId: 'domain_find' });
+    const list = net.calls.find((c) => c.url.includes('graph.facebook.com') && c.body.includes('"type":"list"'));
+    assert.ok(list.body.includes('dom:gillsweets.in'));
+    assert.ok(!list.body.includes('dom:gillsweets.com'));
+    assert.ok(list.body.includes('free to register'));
+    await say({ type: 'interactive', buttonId: 'dom:gillsweets.in' });
+    assert.ok(net.calls.some((c) => c.body.includes('porkbun.com/checkout/search?q=gillsweets.in') && c.body.includes('godaddy.com')));
+    assert.ok(net.calls.at(-1).body.includes('bought:gillsweets.in'));
+    assert.ok(!net.calls.some((c) => c.url.includes('checkout/sessions') || c.url.includes('api.porkbun.com')));
+    await say({ type: 'interactive', buttonId: 'bought:gillsweets.in' });
+    assert.ok(net.calls.some((c) => c.url.includes('api.render.com') && c.body.includes('gillsweets.in')));
+    assert.ok(net.calls.at(-1).body.includes('216.24.57.1'));
+    assert.equal((await db.sites.findOne({ slug: 'gillsweets' })).pendingDomain.name, 'gillsweets.in');
+  } finally {
+    globalThis.fetch = realFetch;
     net.restore();
     restore();
   }

@@ -71,6 +71,9 @@ export const config = {
     webhookSecret: env.RAZORPAY_WEBHOOK_SECRET || '',
     plans: { monthly: env.RAZORPAY_PLAN_ID || '', biweekly: env.RAZORPAY_PLAN_BIWEEKLY_ID || '' },
   },
+  domains: {
+    mode: env.DOMAIN_MODE === 'resell' ? 'resell' : 'self',
+  },
   porkbun: {
     apiKey: env.PORKBUN_API_KEY || '',
     secretKey: env.PORKBUN_SECRET_KEY || '',

@@ -40,7 +40,49 @@ const INDUSTRY_TLDS = {
 };
 
 export function domainShopEnabled() {
-  return porkbunEnabled() && domainsEnabled() && billingEnabled();
+  return config.domains.mode === 'resell' && porkbunEnabled() && domainsEnabled() && billingEnabled();
+}
+
+export function domainIdeasEnabled() {
+  return domainsEnabled();
+}
+
+let rdapServers = null;
+
+async function rdapBase(tld) {
+  rdapServers ??= fetch('https://data.iana.org/rdap/dns.json', { signal: AbortSignal.timeout(15000) })
+    .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`IANA ${res.status}`))))
+    .then((data) => {
+      const map = new Map();
+      for (const [tlds, urls] of data.services || []) for (const t of tlds) map.set(t, urls.find((u) => u.startsWith('https://')) || urls[0]);
+      return map;
+    })
+    .catch((err) => {
+      rdapServers = null;
+      throw err;
+    });
+  return (await rdapServers).get(tld) || null;
+}
+
+export async function isRegistered(domain) {
+  const base = await rdapBase(domain.split('.').pop());
+  if (!base) return null;
+  const res = await fetch(`${base.replace(/\/?$/, '/')}domain/${encodeURIComponent(domain)}`, {
+    headers: { Accept: 'application/rdap+json' },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (res.status === 404) return false;
+  if (res.ok) return true;
+  return null;
+}
+
+export function buyLinks(domain) {
+  const q = encodeURIComponent(domain);
+  return [
+    { name: 'Porkbun', url: `https://porkbun.com/checkout/search?q=${q}` },
+    { name: 'GoDaddy', url: `https://www.godaddy.com/domainsearch/find?domainToCheck=${q}` },
+    { name: 'Namecheap', url: `https://www.namecheap.com/domains/registration/results/?domain=${q}` },
+  ];
 }
 
 const word = (text) =>
@@ -80,8 +122,21 @@ export function chargeFor(usd) {
   return Math.ceil((usd * config.billing.usdRate + config.billing.domainMargin) / 100) * 100;
 }
 
+async function freeByRdap(ideas, limit) {
+  const found = [];
+  for (let i = 0; i < ideas.length && found.length < limit; i += 6) {
+    const batch = ideas.slice(i, i + 6);
+    const answers = await Promise.all(batch.map((d) => isRegistered(d).catch(() => null)));
+    batch.forEach((d, j) => {
+      if (answers[j] === false && found.length < limit) found.push({ domain: d });
+    });
+  }
+  return found;
+}
+
 export async function findDomains(site, limit = 6) {
   const ideas = domainIdeas(site);
+  if (!porkbunEnabled()) return freeByRdap(ideas, limit);
   const res = await porkbun('/domain/checkDomain', { domains: ideas });
   return ideas
     .map((domain) => priced(domain, res.domains?.[domain]))
@@ -179,16 +234,25 @@ async function renew(site, order, paymentId) {
   await tellAdmins(`💰 Domain renewed: ${order.domain} for ${site.businessName}, cost $${cost / 100}.`);
 }
 
+export function priceText(d) {
+  if (config.domains.mode === 'resell' && d.charge) return `${money(d.charge)} first year`;
+  return d.cost ? `about $${Math.ceil(d.cost / 100)} a year` : 'free to register';
+}
+
 export function domainRows(list) {
-  return list.map((d) => ({ id: `dom:${d.domain}`, title: d.domain.length <= 24 ? d.domain : `${d.domain.slice(0, 21)}...`, description: `${d.domain.length > 24 ? `${d.domain} · ` : ''}${money(d.charge)} first year` }));
+  return list.map((d) => ({ id: `dom:${d.domain}`, title: d.domain.length <= 24 ? d.domain : `${d.domain.slice(0, 21)}...`, description: `${d.domain.length > 24 ? `${d.domain} · ` : ''}${priceText(d)}` }));
 }
 
 export async function offerDomains(site) {
   const list = await findDomains(site);
   if (!list.length) return false;
+  const how =
+    config.domains.mode === 'resell'
+      ? 'Tap one and pay; I buy it, set it up and connect it for you.'
+      : 'Tap one to buy it in your own name from a domain company, then I connect it to your website for you.';
   await sendList(
     site.ownerPhone,
-    `🌐 Make your website easier to find with its own address instead of ${site.slug}.${config.rootDomain}.\n\nThese names are free right now. Tap one and pay; I buy it, set it up and connect it for you. If it is ever not renewed, your website simply moves back to ${site.slug}.${config.rootDomain}.`,
+    `🌐 Make your website easier to find with its own address instead of ${site.slug}.${config.rootDomain}.\n\nThese names are free right now. ${how} If the domain ever stops working, your website stays on ${site.slug}.${config.rootDomain}.`,
     'See names',
     domainRows(list)
   );
