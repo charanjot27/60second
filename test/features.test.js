@@ -384,8 +384,8 @@ test('a voice-note customer gets an acknowledgement before any website is built'
     assert.equal(site.language, 'pa');
     assert.equal(site.status, 'trial');
     assert.ok(new Date(site.trialEndsAt) > new Date());
-    assert.match(lastText(), /free for 24 hours/);
-    assert.match(lastText(), /\/pay\//);
+    assert.match(lastText(), /\/pay\/gurukirpa/);
+    assert.match(sent.map((m) => JSON.stringify(m)).join(' '), /free for 24 hours/);
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -764,6 +764,8 @@ function withConfig(patch) {
 const said = (calls, text) => calls.filter((c) => c.url.includes('graph.facebook.com') && c.body.includes(text)).length;
 
 test('stripe one-time payments are verified with stripe, counted once and stack', async () => {
+  const restorePrices = withConfig({ billing: { monthly: 900, biweekly: 500 } });
+  try {
   const sessions = {
     cs_once: { id: 'cs_once', status: 'complete', payment_status: 'paid', mode: 'payment', amount_total: 900, currency: 'usd', payment_intent: 'pi_1', metadata: { slug: 'stripeshop', kind: 'service', plan: 'monthly' } },
     cs_two: { id: 'cs_two', status: 'complete', payment_status: 'paid', mode: 'payment', amount_total: 500, currency: 'usd', payment_intent: 'pi_2', metadata: { slug: 'stripeshop', kind: 'service', plan: 'biweekly' } },
@@ -797,9 +799,14 @@ test('stripe one-time payments are verified with stripe, counted once and stack'
   } finally {
     net.restore();
   }
+  } finally {
+    restorePrices();
+  }
 });
 
 test('stripe autopay keeps a site live, a cancelled subscription stops at the paid date', async () => {
+  const restorePrices = withConfig({ billing: { monthly: 900, biweekly: 500 } });
+  try {
   const end = Math.floor(Date.now() / 1000) + 14 * 86400;
   const net = mockFetch([
     ['/checkout/sessions/cs_sub', { id: 'cs_sub', status: 'complete', payment_status: 'paid', mode: 'subscription', subscription: 'sub_s1', metadata: { slug: 'autostripe' } }],
@@ -831,9 +838,14 @@ test('stripe autopay keeps a site live, a cancelled subscription stops at the pa
   } finally {
     net.restore();
   }
+  } finally {
+    restorePrices();
+  }
 });
 
 test('checkout links carry the plan, the price and autopay', async () => {
+  const restorePrices = withConfig({ billing: { monthly: 900, biweekly: 500 } });
+  try {
   const net = mockFetch([['/checkout/sessions', { id: 'cs_new', url: 'https://checkout.stripe.com/c/pay/cs_new' }]]);
   try {
     const site = { _id: 'x1', slug: 'linkshop', ownerPhone: '919000000024', businessName: 'Link Shop' };
@@ -854,6 +866,9 @@ test('checkout links carry the plan, the price and autopay', async () => {
     await assert.rejects(billing.createPayment(site, { kind: 'domain' }));
   } finally {
     net.restore();
+  }
+  } finally {
+    restorePrices();
   }
 });
 
@@ -913,10 +928,11 @@ test('paid time reminds before it ends and switches the site off after', async (
     assert.equal(billing.accessState(await db.sites.findOne({ slug: 'lapsed' })), 'expired');
     await billing.sweepPlans(now);
     assert.ok((await db.sites.findOne({ slug: 'endsoon' })).billing.renewReminderAt);
-    assert.ok(!(await db.sites.findOne({ slug: 'autorenew' })).billing.renewReminderAt);
+    assert.ok((await db.sites.findOne({ slug: 'autorenew' })).billing.renewReminderAt);
+    assert.equal(said(net.calls, 'renews automatically'), 1);
     assert.equal((await db.sites.findOne({ slug: 'lapsed' })).status, 'expired');
     assert.equal(bucket(await db.sites.findOne({ slug: 'lapsed' })), 'unpaid');
-    assert.equal(said(net.calls, 'ends on'), 1);
+    assert.equal(said(net.calls, 'is paid until'), 1);
     assert.equal(said(net.calls, 'paid time has ended'), 1);
   } finally {
     net.restore();
@@ -1444,5 +1460,82 @@ test('asking for a domain in any words opens the domain shop', async () => {
   } finally {
     net.restore();
     restore();
+  }
+});
+
+test('pay is one big button to Stripe, and manage payment opens the Stripe billing page', async () => {
+  const net = mockFetch([
+    ['/billing_portal/sessions', { id: 'bps_1', url: 'https://billing.stripe.com/p/session/abc' }],
+    ['/checkout/sessions', { id: 'cs_x', url: 'https://checkout.stripe.com/c/pay/cs_x' }],
+  ]);
+  const { handleMessage } = await import('../src/bot.js');
+  const from = '919000000100';
+  const say = (text) => handleMessage({ id: crypto.randomUUID(), from, name: 'P', type: 'text', text });
+  try {
+    assert.equal(priceLabel(), '$9 every 2 weeks');
+    await db.sites.insertOne({ slug: 'bajwasweets', ownerPhone: from, businessName: 'Bajwa Sweets', status: 'trial', plan: 'trial', trialEndsAt: new Date(Date.now() + 3600e3) });
+    await db.sessions.insertOne({ _id: from, state: 'LIVE', slug: 'bajwasweets', draft: {} });
+    await say('pay');
+    const cta = JSON.parse(net.calls.at(-1).body);
+    assert.equal(cta.interactive.type, 'cta_url');
+    assert.match(cta.interactive.action.parameters.url, /\/pay\/bajwasweets\?k=/);
+    assert.match(cta.interactive.body.text, /\$9 every 2 weeks/);
+    assert.match(cta.interactive.body.text, /once=1/);
+
+    const site = await db.sites.findOne({ slug: 'bajwasweets' });
+    await billing.createPayment(site, { plan: 'biweekly', auto: true });
+    await billing.createPayment(site, { plan: 'biweekly' });
+    const [auto, once] = net.calls.filter((c) => c.url.endsWith('/checkout/sessions')).map((c) => new URLSearchParams(c.body));
+    assert.equal(auto.get('line_items[0][price_data][recurring][interval]'), 'week');
+    assert.equal(auto.get('line_items[0][price_data][recurring][interval_count]'), '2');
+    assert.equal(auto.get('line_items[0][price_data][unit_amount]'), '900');
+    assert.match(auto.get('custom_text[submit][message]'), /cancel plan/);
+    assert.equal(once.get('customer_creation'), 'always');
+
+    await say('manage payment');
+    assert.ok(net.calls.at(-1).body.includes('/pay/bajwasweets'));
+    await db.sites.updateOne({ slug: 'bajwasweets' }, { $set: { plan: 'paid', status: 'active', 'billing.customerId': 'cus_9', 'billing.autopay': true, 'billing.paidUntil': new Date(Date.now() + 10 * 864e5) } });
+    await say('manage payment');
+    const portal = net.calls.find((c) => c.url.endsWith('/billing_portal/sessions'));
+    assert.equal(new URLSearchParams(portal.body).get('customer'), 'cus_9');
+    assert.equal(JSON.parse(net.calls.at(-1).body).interactive.action.parameters.url, 'https://billing.stripe.com/p/session/abc');
+    await say('pay');
+    assert.match(JSON.parse(net.calls.at(-1).body).text.body, /renews by itself/);
+  } finally {
+    net.restore();
+  }
+});
+
+test('owners are reminded to renew their own domain, and an expired one falls back to the free address', async () => {
+  const exp = new Date(Date.now() + 5 * 864e5).toISOString();
+  let expiry = exp;
+  const net = mockFetch([
+    ['data.iana.org/rdap/dns.json', { services: [[['com'], ['https://rdap.verisign.com/com/v1/']]] }],
+    ['rdap.verisign.com/com/v1/domain/', () => ({ ldhName: 'x', events: [{ eventAction: 'expiration', eventDate: expiry }], entities: [{ roles: ['registrar'], vcardArray: ['vcard', [['fn', {}, 'text', 'GoDaddy.com, LLC']]] }] })],
+  ]);
+  const { sweepOwnedDomains } = shop;
+  try {
+    await db.sites.insertOne({ slug: 'virksaree', ownerPhone: '919000000101', businessName: 'Virk Sarees', status: 'active', plan: 'paid', customDomain: 'virksarees.com' });
+    await sweepOwnedDomains();
+    await sweepOwnedDomains();
+    let site = await db.sites.findOne({ slug: 'virksaree' });
+    assert.equal(site.ownDomain.reminded, 7);
+    assert.equal(site.ownDomain.registrar, 'GoDaddy.com, LLC');
+    assert.equal(said(net.calls, 'expires on'), 1);
+    assert.ok(net.calls.some((c) => c.body.includes('GoDaddy.com, LLC')));
+
+    expiry = new Date(Date.now() + 370 * 864e5).toISOString();
+    await sweepOwnedDomains(new Date(Date.now() + 2 * 864e5));
+    site = await db.sites.findOne({ slug: 'virksaree' });
+    assert.equal(said(net.calls, 'is renewed until'), 1);
+    assert.equal(site.ownDomain.reminded, null);
+
+    expiry = new Date(Date.now() - 10 * 864e5).toISOString();
+    await sweepOwnedDomains(new Date(Date.now() + 9 * 864e5));
+    site = await db.sites.findOne({ slug: 'virksaree' });
+    assert.ok(!site.customDomain);
+    assert.equal(said(net.calls, 'was not renewed'), 1);
+  } finally {
+    net.restore();
   }
 });

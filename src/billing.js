@@ -102,8 +102,16 @@ function sign(slug) {
   return crypto.createHmac('sha256', config.linkSecret).update(`pay:${slug}`).digest('hex').slice(0, 24);
 }
 
-export function payLink(slug, path = '') {
-  return `https://${config.rootDomain}/pay/${slug}${path}?k=${sign(slug)}`;
+export function payLink(slug, path = '', extra = '') {
+  return `https://${config.rootDomain}/pay/${slug}${path}?k=${sign(slug)}${extra}`;
+}
+
+export const payOnceLink = (slug) => payLink(slug, '', '&once=1');
+
+export async function portalLink(site) {
+  if (provider() !== 'stripe' || !site.billing?.customerId) return null;
+  const session = await stripe('POST', '/billing_portal/sessions', { customer: site.billing.customerId, return_url: siteUrl(site.slug) });
+  return session?.url || null;
 }
 
 export function verifyPayKey(slug, key) {
@@ -161,8 +169,17 @@ async function stripeCheckout(site, purchase, auto) {
     client_reference_id: site.slug,
     metadata,
     ...(auto ? { subscription_data: { metadata } } : { payment_intent_data: { metadata } }),
+    ...(site.billing?.customerId ? { customer: site.billing.customerId } : auto ? {} : { customer_creation: 'always' }),
+    locale: 'auto',
+    custom_text: {
+      submit: {
+        message: auto
+          ? `${site.businessName || 'Your website'} stays online and renews by itself. Stop anytime by sending "cancel plan" on WhatsApp.`
+          : `${site.businessName || 'Your website'} stays online for the time you pay for. Nothing is charged automatically.`,
+      },
+    },
     success_url: `https://${config.rootDomain}/paid?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: payLink(site.slug, purchase.kind === 'domain' ? '/domain' : ''),
+    cancel_url: siteUrl(site.slug),
   });
   if (!session?.url) throw new Error('Stripe returned no checkout link');
   return session.url;
@@ -274,7 +291,13 @@ async function applyOneTime(site, pay) {
   const current = site.billing?.paidUntil && accessState(site) === 'live' ? new Date(site.billing.paidUntil).getTime() : 0;
   const paidUntil = new Date(Math.max(current, Date.now()) + plan.days * DAY);
   try {
-    await markPaid(site, { 'billing.paidUntil': paidUntil, 'billing.lastPaymentId': pay.id, 'billing.provider': pay.provider, 'billing.planId': plan.id });
+    await markPaid(site, {
+      'billing.paidUntil': paidUntil,
+      'billing.lastPaymentId': pay.id,
+      'billing.provider': pay.provider,
+      'billing.planId': plan.id,
+      ...(pay.customerId ? { 'billing.customerId': pay.customerId } : {}),
+    });
   } catch (err) {
     await payments.deleteOne({ _id: pay.id }).catch(() => {});
     throw err;
@@ -296,6 +319,7 @@ async function applySubscription(site, sub) {
     'billing.autopay': true,
     'billing.provider': sub.provider,
     'billing.planId': sub.plan.id,
+    ...(sub.customerId ? { 'billing.customerId': sub.customerId } : {}),
     ...(sub.paymentId ? { 'billing.lastPaymentId': sub.paymentId } : {}),
   });
   const claimed = await claimPayment(`${sub.id}:${sub.periodEnd}`, {
@@ -354,7 +378,7 @@ async function stripeSubscription(id, paymentId) {
     return null;
   }
   const site = await siteBySlug(sub.metadata?.slug);
-  return site && applySubscription(site, { provider: 'stripe', id: sub.id, plan, periodEnd, paymentId, amount: item.price.unit_amount });
+  return site && applySubscription(site, { provider: 'stripe', id: sub.id, plan, periodEnd, paymentId, amount: item.price.unit_amount, customerId: typeof sub.customer === 'string' ? sub.customer : sub.customer?.id });
 }
 
 export async function confirmCheckout(sessionId) {
@@ -374,6 +398,7 @@ export async function confirmCheckout(sessionId) {
       amount: session.amount_total,
       currency: session.currency,
       provider: 'stripe',
+      customerId: typeof session.customer === 'string' ? session.customer : session.customer?.id,
     })
   );
 }
@@ -409,7 +434,13 @@ export function handleStripeEvent(event) {
       const subId = obj.subscription || obj.parent?.subscription_details?.subscription;
       const site = subId && (await sites.findOne({ 'billing.subscriptionId': subId }));
       if (site) {
-        await alertOwner(site, `⚠️ This autopay payment for ${siteUrl(site.slug)} did not go through. Please check your card; it will be retried automatically.`, 'Payment failed');
+        const portal = await portalLink(site).catch(() => null);
+        await alertOwner(
+          site,
+          `⚠️ This autopay payment for ${siteUrl(site.slug)} did not go through. It will be tried again automatically.` +
+            (portal ? `\n\nTo use another card, tap: ${portal}` : '\n\nPlease check your card.'),
+          'Payment failed'
+        );
       }
       return;
     }
@@ -473,16 +504,29 @@ export async function handleRazorpayEvent(event, eventId) {
 
 export async function sweepPlans(now = new Date()) {
   if (!billingEnabled()) return;
-  const soon = new Date(now.getTime() + 3 * DAY);
+  const soon = new Date(now.getTime() + 2 * DAY + GRACE);
   const ending = await sites
     .find({ status: 'active', plan: 'paid', 'billing.paidUntil': { $gt: now, $lte: soon }, 'billing.renewReminderAt': { $exists: false } })
     .limit(200)
     .toArray();
-  for (const site of ending.filter((x) => !x.billing?.autopay)) {
+  for (const site of ending) {
+    const until = new Date(site.billing.paidUntil);
+    if (site.billing?.autopay) {
+      const chargeAt = new Date(until.getTime() - GRACE);
+      if (chargeAt - now > DAY) continue;
+      await sites.updateOne({ _id: site._id }, { $set: { 'billing.renewReminderAt': now } });
+      await alertOwner(
+        site,
+        `🔔 Friendly reminder: your website plan renews automatically on *${shortDate(chargeAt)}* (${priceLabel()}). Nothing to do. To stop autopay, send *cancel plan*.`,
+        'Your plan renews soon'
+      );
+      continue;
+    }
+    if (until - now > 2 * DAY) continue;
     await sites.updateOne({ _id: site._id }, { $set: { 'billing.renewReminderAt': now } });
     await alertOwner(
       site,
-      `⏳ Your paid time for ${siteUrl(site.slug)} ends on *${shortDate(site.billing.paidUntil)}*.\n\nKeep it online (${priceLabel()}), pay by ${payMethods()}: ${payLink(site.slug)}`,
+      `⏳ Your website ${siteUrl(site.slug)} is paid until *${shortDate(until)}*.\n\nTo keep it online (${priceLabel()}), tap: ${payLink(site.slug)}`,
       'Your plan ends soon'
     );
   }

@@ -1,6 +1,6 @@
 import { config, siteUrl } from './config.js';
 import { sessions, sites, leads, isDuplicateKey } from './db.js';
-import { sendText, sendButtons, sendList, downloadMedia } from './whatsapp.js';
+import { sendText, sendButtons, sendList, sendCta, downloadMedia } from './whatsapp.js';
 import { extractBusiness } from './ai.js';
 import { processAndUpload, uploadVideo, deletePhotos, deleteVideos } from './storage.js';
 import { isTaken, suggestSlug, parseSlugInput, slugProblem } from './slug.js';
@@ -33,6 +33,8 @@ import {
   autopayAvailable,
   shortDate,
   createPayment,
+  payOnceLink,
+  portalLink,
 } from './billing.js';
 import { domainsEnabled, normalizeDomain, connectDomain } from './domains.js';
 import { domainShopEnabled, domainIdeasEnabled, findDomains, quoteDomain, domainPaid, domainPayLink, offerText, domainRows, priceText, buyLinks, isRegistered } from './domainshop.js';
@@ -51,6 +53,7 @@ const MY_SITES = new Set(['my websites', 'my sites', 'websites', 'sites', 'switc
 const SWITCH = /^(?:switch|open|use)\s+(?:to\s+)?([a-z0-9-]{3,30})$/;
 const DELETE = new Set(['delete', 'delete my site', 'delete site', 'delete website', 'delete my website']);
 const CHAT = new Set(['hi', 'hii', 'hello', 'hey', 'menu', 'help', 'ok', 'okay', 'thanks', 'thank you', 'namaste', 'sat sri akal', 'start']);
+const MANAGE = new Set(['manage payment', 'manage payments', 'change card', 'update card', 'payment method', 'billing', 'invoices', 'invoice', 'receipts', 'receipt', 'my plan', 'manage plan']);
 const PAY = new Set(['pay', 'subscribe', 'activate', 'reactivate', 'upgrade', 'buy', 'plan', 'keep it', 'keep', 'keep my site']);
 const ADMIN_CMD = /^(activate|extend|pause|status)\s+([a-z0-9-]{3,30})(?:\s+(\d+(?:\.\d+)?))?$/;
 const DOMAIN_MENU = new Set(['domain', 'domains', 'get domain', 'buy domain', 'own domain', 'my domain', 'new domain', 'renew domain', 'website address', 'get a domain', 'domain_menu']);
@@ -446,6 +449,7 @@ const HANDLERS = {
     const active = state === 'live' || state === 'trial';
 
     if (PAY.has(cmd)) return sendPayLink(s, site);
+    if (MANAGE.has(cmd)) return sendPortal(s, site);
     if (CANCEL.has(cmd)) return askCancel(s, site);
 
     const emailMatch = text.match(/^e-?mail\s*[:\-]?\s*([^\s@]+@[^\s@]+\.[a-z]{2,})$/i);
@@ -796,12 +800,11 @@ async function publish(s) {
       `📍 Share your location pin to add a map. Your number ${formatPhone(s._id)} is on the buttons (send *number 98xxxxxxxx* to change it).\n\n` +
       (trial
         ? `⏳ It's *free for ${config.billing.trialHours} hours*, then it goes offline automatically.\n` +
-          (billingEnabled()
-            ? `To keep it online: *${priceLabel()}*. Pay by ${payMethods()}${autopayAvailable() ? ', with autopay or one period at a time' : ''}:\n${payLink(d.slug)}\n\n`
-            : `To keep it online, just reply *keep it* here.\n\n`)
+          (billingEnabled() ? `To keep it online after that, send *pay* anytime (${priceLabel()}).\n\n` : `To keep it online, just reply *keep it* here.\n\n`)
         : '') +
       `✏️ Want changes? Just type or send a voice note, for example _"make the colours warmer"_. Send *undo* to go back or *new design* for a fresh look.`
   );
+  if (trial && billingEnabled()) await sendPayButton(s._id, site);
 }
 
 async function designSite(site, ownerPhone) {
@@ -881,7 +884,9 @@ function routeContext(site) {
     trialEnds: site.trialEndsAt || null,
     paidUntil: site.billing?.paidUntil || null,
     price: billingEnabled() ? priceLabel() : 'free while we are in demo',
-    payment: billingEnabled() ? `send "pay" for the payment link (${payMethods()})` : 'reply "keep it" and the team activates it',
+    payment: billingEnabled()
+      ? `send "pay" for a secure Stripe payment button (${payMethods()}); it renews by itself every period and "cancel plan" stops it; "manage payment" changes the card or shows receipts`
+      : 'reply "keep it" and the team activates it',
     commands: 'pay, cancel plan, domain (find and buy a new domain), connect domain name.com (only for a domain they already own), leads, new design, undo, number 98xxxxxxxx, email you@example.com, delete my site; share a location pin to add a map; type or voice-note any change',
     pictures: (site.aiImages || []).map((x, i) => ({ slot: (Number.isInteger(x.slot) ? x.slot : i) + 1, brief: String(x.prompt || '').slice(0, 200) })),
   };
@@ -1005,17 +1010,41 @@ async function sendPayLink(s, site) {
   }
   if (site.plan === 'paid' && accessState(site) === 'live') {
     if (site.billing?.autopay || !site.billing?.paidUntil) {
-      return sendText(s._id, `✅ Your plan is active${site.billing?.autopay ? ' and autopay renews it by itself' : ''}. To cancel, send *cancel plan*.`);
+      return sendText(
+        s._id,
+        `✅ Your plan is active${site.billing?.autopay ? ' and renews by itself' : ''}${site.billing?.paidUntil ? `, paid until *${shortDate(site.billing.paidUntil)}*` : ''}.\n\nSend *manage payment* to change your card or see receipts, or *cancel plan* to stop.`
+      );
     }
-    return sendText(
+    return sendCta(
       s._id,
-      `✅ Paid until *${shortDate(site.billing.paidUntil)}*. To add more time now (${priceLabel()}):\n${payLink(site.slug)}`
+      `✅ Paid until *${shortDate(site.billing.paidUntil)}*.\n\nTap below to keep it online with autopay (${priceLabel()}), so you never have to remember. Prefer to pay just once? ${payOnceLink(site.slug)}`,
+      'Turn on autopay',
+      payLink(site.slug)
     );
   }
-  return sendText(
-    s._id,
-    `💳 Keep ${siteUrl(site.slug)} online: *${priceLabel()}*. Pay by ${payMethods()}${autopayAvailable() ? ', with autopay or one period at a time' : ''}:\n${payLink(site.slug)}`
+  return sendPayButton(s._id, site);
+}
+
+export function sendPayButton(to, site) {
+  return sendCta(
+    to,
+    `💳 Keep *${site.businessName}* online: *${priceLabel()}*.\n\nPay with card, Apple Pay or Google Pay. It renews by itself; stop anytime by sending *cancel plan*.\n\nPrefer to pay just once for now? ${payOnceLink(site.slug)}`,
+    'Pay securely',
+    payLink(site.slug)
   );
+}
+
+async function sendPortal(s, site) {
+  const url = await portalLink(site).catch((err) => {
+    log.warn('portal link failed', { error: err.message });
+    return null;
+  });
+  if (!url) {
+    return site.plan === 'paid'
+      ? sendText(s._id, `Your plan is active${site.billing?.paidUntil ? ` until *${shortDate(site.billing.paidUntil)}*` : ''}. Send *pay* to add more time.`)
+      : sendPayButton(s._id, site);
+  }
+  return sendCta(s._id, '🧾 Change your card, see your receipts or check your next payment here. The link works for a few minutes.', 'Manage payment', url);
 }
 
 function askCancel(s, site) {
@@ -1243,8 +1272,8 @@ function liveMenu(s, site) {
     return sendText(
       s._id,
       `⏸ Your website ${url} is offline because ${state === 'cancelled' ? 'the plan was cancelled' : site.plan === 'paid' ? 'the paid time ended' : 'the free trial ended'}.\n\n` +
-        (billingEnabled() ? `Bring it back instantly for ${priceLabel()}, pay by ${payMethods()}:\n${payLink(s.slug)}` : 'Reply *keep it* and our team will bring it back for you.')
-    );
+        (billingEnabled() ? `Your design is saved. Tap below and it is back online in a minute (${priceLabel()}).` : 'Reply *keep it* and our team will bring it back for you.')
+    ).then(() => (billingEnabled() ? sendCta(s._id, `Bring *${site.businessName}* back online`, 'Pay securely', payLink(s.slug)) : null));
   }
   const trialNote =
     state === 'trial' && site.trialEndsAt
@@ -1253,7 +1282,7 @@ function liveMenu(s, site) {
   return sendButtons(
     s._id,
     `Your website: ${url}\n\n${trialNote}To change anything, type it or send a voice note, for example _"make the colours dark blue"_.\n\n` +
-      `More: *new design*, *undo*, *leads*, *domain*, *email you@example.com*, *number 98xxxxxxxx*, *pay*, *cancel plan*, *my websites*, *new website*, *delete my site*`,
+      `More: *new design*, *undo*, *leads*, *domain*, *email you@example.com*, *number 98xxxxxxxx*, *pay*, *manage payment*, *cancel plan*, *my websites*, *new website*, *delete my site*`,
     [
       { id: 'edit_about', title: 'Edit details' },
       { id: 'edit_photos', title: 'Change photos' },

@@ -133,6 +133,21 @@ export function sendButtons(to, body, buttons) {
   });
 }
 
+export async function sendCta(to, body, label, url) {
+  try {
+    return await send(to, {
+      type: 'interactive',
+      interactive: {
+        type: 'cta_url',
+        body: { text: body.slice(0, 1024) },
+        action: { name: 'cta_url', parameters: { display_text: label.slice(0, 20), url } },
+      },
+    });
+  } catch {
+    return sendText(to, `${body}\n\n👉 ${url}`);
+  }
+}
+
 export function sendList(to, body, button, rows) {
   return send(to, {
     type: 'interactive',

@@ -24,7 +24,7 @@ import {
   accessState,
 } from './billing.js';
 import { plans, money, priceLabel } from './plans.js';
-import { domainShopEnabled, quoteRenewal, sweepDomainRenewals } from './domainshop.js';
+import { domainShopEnabled, quoteRenewal, sweepDomainRenewals, sweepOwnedDomains } from './domainshop.js';
 import { distillLessons } from './lessons.js';
 import { verifyRazorpayWebhook, verifyLinkCallback, verifySubscriptionCallback } from './razorpay.js';
 import { sweepDomains } from './domains.js';
@@ -153,6 +153,18 @@ app.get('/pay/:slug', rootOnly, async (req, res) => {
   if (paidLive(site) && (site.billing?.autopay || !site.billing?.paidUntil)) {
     return page(res, 200, 'Your plan is active', `${site.slug}.${config.rootDomain} is live${site.billing?.autopay ? ' and renews by itself' : ''}. Nothing to pay right now.`);
   }
+  const only = plans().length === 1 ? plans()[0] : null;
+  if (only && provider() === 'stripe') {
+    if (/whatsapp|facebookexternalhit|bot|crawler|preview/i.test(req.get('user-agent') || '')) {
+      return page(res, 200, 'Keep your website online', `${site.businessName}: ${priceLabel()}. Pay securely by ${payMethods()}.`);
+    }
+    try {
+      return res.redirect(303, await createPayment(site, { kind: 'service', plan: only.id, auto: req.query.once !== '1' }));
+    } catch (err) {
+      log.error('checkout failed', err, { slug: site.slug });
+      return unavailable(res);
+    }
+  }
   const options = plans().flatMap((p) => [
     ...(autopayAvailable(p) ? [{ plan: `${p.id}-auto`, title: `${p.name} · autopay`, text: `${money(p.amount)} ${p.every}, renews by itself. Cancel anytime on WhatsApp.` }] : []),
     { plan: `${p.id}-once`, title: `${p.name} · pay once`, text: `${money(p.amount)} for ${p.days} days. No automatic charges.` },
@@ -253,6 +265,7 @@ async function sweep() {
   await sweepTrials().catch((err) => log.error('trial sweep failed', err));
   await sweepPlans().catch((err) => log.error('plan sweep failed', err));
   await sweepDomainRenewals().catch((err) => log.error('domain renewal sweep failed', err));
+  await sweepOwnedDomains().catch((err) => log.error('owned domain sweep failed', err));
   await distillLessons().catch((err) => log.warn('lesson update failed', { error: err.message }));
   await sweepDomains().catch((err) => log.error('domain sweep failed', err));
 }

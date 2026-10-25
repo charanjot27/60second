@@ -64,16 +64,25 @@ async function rdapBase(tld) {
   return (await rdapServers).get(tld) || null;
 }
 
-export async function isRegistered(domain) {
+async function rdap(domain) {
   const base = await rdapBase(domain.split('.').pop());
   if (!base) return null;
   const res = await fetch(`${base.replace(/\/?$/, '/')}domain/${encodeURIComponent(domain)}`, {
     headers: { Accept: 'application/rdap+json' },
     signal: AbortSignal.timeout(10000),
   });
-  if (res.status === 404) return false;
-  if (res.ok) return true;
-  return null;
+  if (res.status === 404) return { registered: false };
+  if (!res.ok) return null;
+  const data = await res.json().catch(() => ({}));
+  const expiry = (data.events || []).find((e) => e.eventAction === 'expiration')?.eventDate;
+  const registrar = (data.entities || []).find((e) => (e.roles || []).includes('registrar'));
+  const name = registrar?.vcardArray?.[1]?.find((v) => v[0] === 'fn')?.[3];
+  return { registered: true, expiresAt: expiry ? new Date(expiry) : null, registrar: name ? String(name).slice(0, 80) : '' };
+}
+
+export async function isRegistered(domain) {
+  const info = await rdap(domain);
+  return info ? info.registered : null;
 }
 
 export function buyLinks(domain) {
@@ -322,6 +331,46 @@ export async function sweepDomainRenewals(now = new Date()) {
     await alertOwner(
       site,
       `🌐 Your domain *${site.domain.name}* expires on *${shortDate(site.domain.expiresAt)}*.\n\nRenew it for 1 year (about ${money(chargeFor(site.domain.renewCost))}): ${domainPayLink(site.slug)}`,
+      'Your domain expires soon'
+    );
+  }
+}
+
+export async function sweepOwnedDomains(now = new Date()) {
+  const list = await sites.find({ customDomain: { $exists: true } }).limit(500).toArray();
+  for (const site of list.filter((x) => !x.domain?.provider)) {
+    const name = site.customDomain;
+    const known = site.ownDomain?.name === name ? site.ownDomain : { name };
+    const stale = !known.checkedAt || now - new Date(known.checkedAt) > (known.expiresAt && new Date(known.expiresAt) - now < 35 * DAY ? DAY : 7 * DAY);
+    let current = known;
+    if (stale) {
+      const info = await rdap(name).catch(() => null);
+      if (!info) continue;
+      const renewed = known.expiresAt && info.expiresAt && info.expiresAt > new Date(known.expiresAt);
+      current = { name, registered: info.registered, expiresAt: info.expiresAt, registrar: info.registrar || known.registrar || '', checkedAt: now, reminded: renewed ? null : known.reminded || null };
+      await sites.updateOne({ _id: site._id }, { $set: { ownDomain: current } });
+      if (renewed && known.reminded) {
+        await alertOwner(site, `✅ Thanks! *${name}* is renewed until *${shortDate(info.expiresAt)}*. Your website stays on it.`, 'Your domain is renewed');
+      }
+    }
+    if (!current.expiresAt) continue;
+    const left = (new Date(current.expiresAt) - now) / DAY;
+    if (current.registered === false || left < -3) {
+      await sites.updateOne({ _id: site._id }, { $unset: { customDomain: '' }, $set: { 'ownDomain.lapsed': now } });
+      invalidate(site.slug, name);
+      await alertOwner(
+        site,
+        `⚠️ *${name}* was not renewed, so your website is back on ${siteUrl(site.slug)} and still online.\n\nIf you renew ${name} at ${current.registrar || 'your domain company'}, send *connect domain ${name}* and I'll switch it back.`,
+        'Your domain has expired'
+      );
+      continue;
+    }
+    const stage = REMIND_DAYS.filter((d) => left <= d).at(-1);
+    if (!stage || left <= 0 || (current.reminded && current.reminded <= stage)) continue;
+    await sites.updateOne({ _id: site._id }, { $set: { 'ownDomain.reminded': stage } });
+    await alertOwner(
+      site,
+      `🌐 Your domain *${name}* expires on *${shortDate(current.expiresAt)}*.\n\nPlease renew it at ${current.registrar || 'the company you bought it from'} (log in, find ${name}, tap Renew). Tip: turn on auto-renew there so you never have to think about it.\n\nIf it is not renewed, your website keeps working at ${siteUrl(site.slug)}.`,
       'Your domain expires soon'
     );
   }

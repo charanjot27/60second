@@ -75,11 +75,14 @@ After launch the owner changes anything by typing it in plain words, for example
 the facts or the pictures, and the previous version is kept for `undo`.
 
 Every site starts as a 24-hour free trial when billing is configured; admin numbers never get a trial.
-The bot sends a signed payment link where the owner picks monthly or every-2-weeks, with autopay or
-paying once, through Stripe (card, Apple Pay, Google Pay) or Razorpay (UPI, card, Apple Pay).
-Every payment is re-checked with the provider's API (status, amount, currency, plan) before it counts,
-and each payment id is counted once. Owners get a reminder three days before their paid time ends.
-Unpaid trials, ended periods and cancelled plans go offline at render time and in a 5-minute background sweep.
+Payment is one WhatsApp button: `pay` sends a "Pay securely" button that opens Stripe Checkout directly
+($9 every 2 weeks by default, with card, Apple Pay or Google Pay). Autopay is the default; a "pay just once"
+link is offered next to it. `manage payment` opens Stripe's billing page to change the card or see receipts.
+Every payment is re-checked with Stripe (status, amount, currency, plan) before it counts, each payment id
+is counted once, and webhooks are signature-checked. Autopay owners get a reminder a day before each
+charge and a message with a card-update link if a charge fails; pay-once owners are reminded two days
+before their time ends. Unpaid trials, ended periods and cancelled plans go offline at render time and
+in a 5-minute background sweep.
 
 Right after an owner's first payment the bot offers fitting domain names as a WhatsApp list, checked live
 against the registries (RDAP, no account needed). By default (`DOMAIN_MODE=self`) the owner taps a name, buys
@@ -91,11 +94,15 @@ business, checks them live on Porkbun and shows only free ones with a yearly pri
 `DOMAIN_MARGIN`). After payment it registers the name, points its DNS at the site and connects it.
 If the name is taken or its price changed before purchase, the payment is refunded automatically.
 Domains are reminded 30, 7 and 1 days before they expire; an expired domain falls back to the free address.
+For domains owners bought themselves, the expiry date and registrar are read from RDAP every week (daily
+in the last month); owners get the same 30, 7 and 1 day reminders naming their registrar, a thank-you when
+it is renewed, and the site moves back to the free address if it lapses.
 
 | Command | What it does |
 |---|---|
 | any sentence or voice note | Applies that change to the site (voice notes are read back for confirmation first) |
-| `pay` | Sends the payment link (monthly or every 2 weeks, autopay or once); paying early adds time |
+| `pay` | Sends a "Pay securely" button (autopay) and a pay-once link; paying early adds time |
+| `manage payment` | Opens Stripe's billing page: change card, receipts, next payment |
 | `domain` | Finds and buys a domain, or renews the current one |
 | `new website` | Starts a new business website on the same number (admins anytime, others once their sites are paid) |
 | `my websites`, `switch name` | Lists the number's websites and picks which one later messages change |
@@ -203,7 +210,7 @@ test/
 | `PEXELS_API_KEY`, `UNSPLASH_ACCESS_KEY`, `PIXABAY_API_KEY` | Real stock photos; Claude picks the best stock or AI picture for each spot |
 | `ADMIN_NUMBERS` | Numbers that skip limits and trials, and may send `model check` |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Payments by card, Apple Pay and Google Pay; webhook at `https://ROOT_DOMAIN/stripe/webhook` |
-| `PRICE_CURRENCY`, `PRICE_MONTHLY`, `PRICE_BIWEEKLY` | Plan prices ($9 a month and $5 every 2 weeks by default); 0 hides a plan |
+| `PRICE_CURRENCY`, `PRICE_MONTHLY`, `PRICE_BIWEEKLY` | Plan prices ($9 every 2 weeks by default; monthly is hidden at 0). With one plan the pay button goes straight to Stripe |
 | `PAYMENTS=razorpay`, `RAZORPAY_*` | Razorpay instead of Stripe (UPI); webhook at `https://ROOT_DOMAIN/razorpay/webhook` |
 | `DOMAIN_MODE` | `self` (default: owners buy their own domain, the bot connects it) or `resell` (the bot buys it with Porkbun credit) |
 | `PORKBUN_API_KEY`, `PORKBUN_SECRET_KEY` | Resell mode, and prices next to suggested names |
