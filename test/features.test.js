@@ -1356,12 +1356,14 @@ test('by default owners buy the domain themselves and the bot connects it', asyn
   ]);
   const realFetch = globalThis.fetch;
   const wrapped = globalThis.fetch;
+  let boughtIn = false;
   globalThis.fetch = async (url, init) => {
     const u = String(url);
-    if (u.includes('rdap.') && !u.endsWith('gillsweets.com') && !u.includes('iana')) {
+    if (u.includes('rdap.') && !u.endsWith('gillsweets.com') && !u.includes('iana') && !(boughtIn && u.endsWith('gillsweets.in'))) {
       wrapped(url, init);
       return new Response('{}', { status: 404 });
     }
+    if (boughtIn && u.endsWith('domain/gillsweets.in')) return new Response('{"ldhName":"gillsweets.in"}', { status: 200 });
     return wrapped(url, init);
   };
   const { handleMessage } = await import('../src/bot.js');
@@ -1380,7 +1382,11 @@ test('by default owners buy the domain themselves and the bot connects it', asyn
     assert.ok(net.calls.some((c) => c.body.includes('porkbun.com/checkout/search?q=gillsweets.in') && c.body.includes('godaddy.com')));
     assert.ok(net.calls.at(-1).body.includes('bought:gillsweets.in'));
     assert.ok(!net.calls.some((c) => c.url.includes('checkout/sessions') || c.url.includes('api.porkbun.com')));
-    await say({ type: 'interactive', buttonId: 'bought:gillsweets.in' });
+    await say({ type: 'interactive', buttonId: 'bought:gillsweets.in', text: 'I bought it ✅' });
+    assert.ok(net.calls.at(-1).body.includes('not registered to anyone yet'));
+    assert.ok(!net.calls.some((c) => c.url.includes('api.render.com')));
+    boughtIn = true;
+    await say({ type: 'interactive', buttonId: 'bought:gillsweets.in', text: 'I bought it ✅' });
     assert.ok(net.calls.some((c) => c.url.includes('api.render.com') && c.body.includes('gillsweets.in')));
     assert.ok(net.calls.at(-1).body.includes('216.24.57.1'));
     assert.equal((await db.sites.findOne({ slug: 'gillsweets' })).pendingDomain.name, 'gillsweets.in');

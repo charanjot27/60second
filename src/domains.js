@@ -43,7 +43,7 @@ async function render(method, path, body) {
     data = null;
   }
   if (!res.ok) {
-    const err = new Error(`Render ${res.status}: ${data?.message || text.slice(0, 160)}`);
+    const err = new Error(`Render ${method} ${path} ${res.status}: ${data?.message || text.slice(0, 200)}`);
     err.status = res.status;
     throw err;
   }

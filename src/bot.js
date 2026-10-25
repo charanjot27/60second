@@ -35,7 +35,7 @@ import {
   createPayment,
 } from './billing.js';
 import { domainsEnabled, normalizeDomain, connectDomain } from './domains.js';
-import { domainShopEnabled, domainIdeasEnabled, findDomains, quoteDomain, domainPaid, domainPayLink, offerText, domainRows, priceText, buyLinks } from './domainshop.js';
+import { domainShopEnabled, domainIdeasEnabled, findDomains, quoteDomain, domainPaid, domainPayLink, offerText, domainRows, priceText, buyLinks, isRegistered } from './domainshop.js';
 import { money } from './plans.js';
 import { t, LANGS, WELCOME, LANG_BUTTONS } from './i18n.js';
 import { formatPhone } from './render.js';
@@ -1170,11 +1170,26 @@ async function handleDomain(s, site, input) {
     await sites.updateOne({ _id: site._id }, { $set: { requestedDomain: domain } });
     return sendText(s._id, `Thanks! I've noted ${domain}. Our team will connect it for you and message you here.`);
   }
+  const registered = await isRegistered(domain).catch(() => null);
+  if (registered === false) {
+    return sendButtons(
+      s._id,
+      `🔎 *${domain}* is not registered to anyone yet, so the purchase has not gone through. Finish buying it (it can take a few minutes to show up), then tap the button again.`,
+      [
+        { id: `bought:${domain}`, title: 'I bought it ✅' },
+        { id: 'domain_find', title: 'Pick another name' },
+      ]
+    );
+  }
   try {
     return sendText(s._id, await connectDomain(site, domain));
   } catch (err) {
     log.error('domain connect failed', err, { domain });
-    return sendText(s._id, `I couldn't add ${domain} right now. Please check the spelling and try again in a few minutes.`);
+    return sendText(
+      s._id,
+      `I couldn't add ${domain} right now. Please check the spelling and try again in a few minutes.` +
+        (isAdminPhone(s._id) ? `\n\n🛠 Admin: ${err.message.slice(0, 300)}` : '')
+    );
   }
 }
 
