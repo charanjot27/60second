@@ -37,7 +37,7 @@ import {
   portalLink,
 } from './billing.js';
 import { domainsEnabled, normalizeDomain, connectDomain } from './domains.js';
-import { domainShopEnabled, domainIdeasEnabled, findDomains, quoteDomain, domainPaid, domainPayLink, offerText, domainRows, priceText, buyLinks, isRegistered } from './domainshop.js';
+import { domainShopEnabled, domainIdeasEnabled, findDomains, quoteDomain, domainPaid, domainPayLink, offerText, domainRows, priceText, buyLinks, isRegistered, offerDomains } from './domainshop.js';
 import { money } from './plans.js';
 import { t, LANGS, WELCOME, LANG_BUTTONS } from './i18n.js';
 import { formatPhone } from './render.js';
@@ -805,6 +805,10 @@ async function publish(s) {
       `✏️ Want changes? Just type or send a voice note, for example _"make the colours warmer"_. Send *undo* to go back or *new design* for a fresh look.`
   );
   if (trial && billingEnabled()) await sendPayButton(s._id, site);
+  else if (domainIdeasEnabled() || domainShopEnabled()) {
+    await sites.updateOne({ slug: site.slug }, { $set: { domainOffered: new Date() } });
+    await offerDomains(site).catch((err) => log.warn('domain offer failed', { error: err.message }));
+  }
 }
 
 async function designSite(site, ownerPhone) {
@@ -849,7 +853,7 @@ function briefSummary(brief) {
   return {
     ...(brief.brief && typeof brief.brief === 'object' ? { business: { ...brief.brief, facts: list(brief.brief.facts), assumptions: list(brief.brief.assumptions), missing: list(brief.brief.missing) } } : {}),
     direction: String(brief.presentation?.direction || brief.concept || '').slice(0, 300),
-    missing: list(brief.brief?.missing),
+    missing: list(brief.brief?.missing).filter((x) => !/phone|whats ?app|mobile|contact number/i.test(x)),
     images: brief.images || [],
     seed: brief.seed || null,
     industry: brief.industry || '',
