@@ -34,6 +34,7 @@ export const config = {
   gemini: {
     apiKey: env.GEMINI_API_KEY || '',
     model: env.GEMINI_MODEL || 'gemini-3.1-flash-lite',
+    designModel: env.GEMINI_DESIGN_MODEL || 'gemini-3-flash-preview',
   },
   mongo: {
     url: env.MONGO_URL || 'mongodb://127.0.0.1:27017',

@@ -13,16 +13,16 @@ function toParts(user) {
   );
 }
 
-export async function callGemini({ system, user, maxTokens = 2000, temperature = 0.7, timeoutMs = 30000, json = false }) {
+export async function callGemini({ system, user, maxTokens = 2000, temperature = 0.7, timeoutMs = 30000, json = false, model = config.gemini.model, think = false }) {
   const generationConfig = {
     temperature,
     maxOutputTokens: maxTokens,
-    thinkingConfig: { thinkingBudget: 0 },
+    ...(think ? {} : { thinkingConfig: { thinkingBudget: 0 } }),
   };
   if (json) generationConfig.responseMimeType = 'application/json';
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${config.gemini.model}:generateContent`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     {
       method: 'POST',
       headers: { 'x-goog-api-key': config.gemini.apiKey, 'Content-Type': 'application/json' },

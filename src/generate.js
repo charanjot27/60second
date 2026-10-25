@@ -612,11 +612,23 @@ function providers() {
   return list;
 }
 
-function ask(provider, { system, user, maxTokens, effort, timeoutMs, json }) {
+const GEMINI_PAGE_NOTE =
+  '\n\nWrite the complete, finished page in one answer: every section described above with real copy, at least 8 sections, CSS of at least 300 lines covering the mobile, 720px and 1100px layouts, hover and focus states and the motion. Do not shorten or summarise anything.';
+
+async function ask(provider, { system, user, maxTokens, effort, timeoutMs, json }) {
   if (provider === 'claude') {
     return callClaude({ model: config.ai.designModel, system, user, maxTokens, effort, timeoutMs });
   }
-  return callGemini({ system, user, maxTokens: Math.min(maxTokens, 60000), temperature: 1, timeoutMs, json });
+  const text = system === PAGE_PROMPT && typeof user === 'string' ? `${user}${GEMINI_PAGE_NOTE}` : user;
+  const base = { system, user: text, maxTokens: Math.min(maxTokens, 60000), temperature: 1, timeoutMs: Math.max(timeoutMs, 300000), json };
+  if (config.gemini.designModel && config.gemini.designModel !== config.gemini.model) {
+    try {
+      return await callGemini({ ...base, model: config.gemini.designModel, think: true });
+    } catch (err) {
+      log.warn('gemini design model failed', { model: config.gemini.designModel, error: err.message.slice(0, 200) });
+    }
+  }
+  return callGemini(base);
 }
 
 export function designerEnabled() {
