@@ -1421,3 +1421,22 @@ test('a connected domain takes over: the free address forwards to it, and stops 
   assert.equal((await call('gilldhaba.site60.in')).status, 200);
   assert.equal((await call('gilldhaba.com')).status, 404);
 });
+
+test('asking for a domain in any words opens the domain shop', async () => {
+  const restore = withConfig({ render: { apiKey: 'rnd', serviceId: 'srv-1', hostname: 'h' } });
+  const net = mockFetch([]);
+  const { handleMessage } = await import('../src/bot.js');
+  const from = '919000000091';
+  try {
+    await db.sites.insertOne({ slug: 'mannfarm', ownerPhone: from, businessName: 'Mann Farm', status: 'active', plan: 'free' });
+    await db.sessions.insertOne({ _id: from, state: 'LIVE', slug: 'mannfarm', draft: {} });
+    for (const text of ['i want to buy a domain', 'mujhe apna domain chahiye', 'can i get my own web address']) {
+      await handleMessage({ id: crypto.randomUUID(), from, name: 'M', type: 'text', text });
+      assert.ok(net.calls.at(-1).body.includes('domain_find'), text);
+    }
+    assert.ok(!net.calls.some((c) => c.url.includes('anthropic') || c.url.includes('generativelanguage')));
+  } finally {
+    net.restore();
+    restore();
+  }
+});

@@ -54,6 +54,8 @@ const CHAT = new Set(['hi', 'hii', 'hello', 'hey', 'menu', 'help', 'ok', 'okay',
 const PAY = new Set(['pay', 'subscribe', 'activate', 'reactivate', 'upgrade', 'buy', 'plan', 'keep it', 'keep', 'keep my site']);
 const ADMIN_CMD = /^(activate|extend|pause|status)\s+([a-z0-9-]{3,30})(?:\s+(\d+(?:\.\d+)?))?$/;
 const DOMAIN_MENU = new Set(['domain', 'domains', 'get domain', 'buy domain', 'own domain', 'my domain', 'new domain', 'renew domain', 'website address', 'get a domain', 'domain_menu']);
+const DOMAIN_WORDS = /\b(domains?|web ?address|website address|own address|dot ?com|डोमेन|ਡੋਮੇਨ)\b/i;
+const wantsDomain = (text) => DOMAIN_WORDS.test(text) && !/\b[a-z0-9-]+\.[a-z]{2,}\b/i.test(text) && !/^(?:connect|transfer|move)\b/i.test(text.trim());
 const DOMAIN_CHECK = /^(?:buy|check|get)\s+(?:domain\s+)?(\S+\.\S+)$/i;
 const CANCEL = new Set(['cancel', 'cancel plan', 'cancel my plan', 'cancel subscription', 'cancel my subscription', 'unsubscribe']);
 const LANG_WORDS = { english: 'en', hindi: 'hi', 'हिंदी': 'hi', punjabi: 'pa', 'ਪੰਜਾਬੀ': 'pa' };
@@ -454,7 +456,7 @@ const HANDLERS = {
     if (cmd.startsWith('dom:')) return offerDomain(s, site, cmd.slice(4));
     if (cmd.startsWith('bought:')) return handleDomain(s, site, cmd.slice(7));
     if (/^(transfer|move) (my )?domain$/.test(cmd)) return requestTransfer(s, site);
-    if (DOMAIN_MENU.has(cmd)) return domainMenu(s, site, cmd === 'renew domain');
+    if (DOMAIN_MENU.has(cmd) || wantsDomain(text)) return domainMenu(s, site, /renew/.test(cmd));
     if (cmd === 'domain_find') return showDomainIdeas(s, site);
     if (cmd === 'domain_have') return sendText(s._id, 'Great! Send it like this and I will guide you: *connect domain yourname.com*');
     if (cmd === 'domain_skip') return sendText(s._id, `👍 You'll keep ${siteUrl(site.slug)}. Send *domain* anytime to get your own.`);
@@ -880,7 +882,7 @@ function routeContext(site) {
     paidUntil: site.billing?.paidUntil || null,
     price: billingEnabled() ? priceLabel() : 'free while we are in demo',
     payment: billingEnabled() ? `send "pay" for the payment link (${payMethods()})` : 'reply "keep it" and the team activates it',
-    commands: 'pay, cancel plan, domain, connect domain name.com, leads, new design, undo, number 98xxxxxxxx, email you@example.com, delete my site; share a location pin to add a map; type or voice-note any change',
+    commands: 'pay, cancel plan, domain (find and buy a new domain), connect domain name.com (only for a domain they already own), leads, new design, undo, number 98xxxxxxxx, email you@example.com, delete my site; share a location pin to add a map; type or voice-note any change',
     pictures: (site.aiImages || []).map((x, i) => ({ slot: (Number.isInteger(x.slot) ? x.slot : i) + 1, brief: String(x.prompt || '').slice(0, 200) })),
   };
 }
@@ -898,6 +900,7 @@ async function liveText(s, site, text) {
     track(s._id, 'answered', { intent: route.intent });
     return sendText(s._id, route.answer);
   }
+  if (route?.intent === 'domain') return domainMenu(s, site);
   if (route?.intent === 'images' && site.page?.body) return redrawOnly(s, site, route);
   if (!route) {
     s.state = 'CONFIRM_EDIT';
