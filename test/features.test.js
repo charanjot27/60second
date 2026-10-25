@@ -1282,3 +1282,62 @@ test('photo review goes to Gemini first, with the pictures attached', async () =
     restore();
   }
 });
+
+test('one tap on a suggested domain gives a checkout link, a taken domain is refunded automatically', async () => {
+  const restore = withConfig({ porkbun: { apiKey: 'pk1_x', secretKey: 'sk1_x' }, render: { apiKey: 'rnd', serviceId: 'srv-1', hostname: 'h' } });
+  let available = 'yes';
+  let order;
+  const net = mockFetch([
+    ['/domain/checkDomain/', () => ({ status: 'SUCCESS', response: { avail: available, price: '10.73', premium: 'no', additional: { renewal: { price: '10.73' } } } })],
+    ['/domain/checkDomain', { status: 'SUCCESS', domains: { 'kaurtiffins.com': { avail: 'yes', price: '10.73', additional: { renewal: { price: '10.73' } } } } }],
+    ['/checkout/sessions/cs_tap', () => ({ id: 'cs_tap', status: 'complete', payment_status: 'paid', mode: 'payment', amount_total: order.charge, currency: 'usd', payment_intent: 'pi_tap', metadata: { slug: 'kaurtiffins', kind: 'domain', domain: order.domain, orderId: order.id } })],
+    ['/checkout/sessions', { id: 'cs_tap', url: 'https://checkout.stripe.com/c/pay/cs_tap' }],
+    ['/refunds', { id: 're_1', status: 'succeeded' }],
+  ]);
+  const { handleMessage } = await import('../src/bot.js');
+  const from = '919000000070';
+  try {
+    await db.sites.insertOne({ slug: 'kaurtiffins', ownerPhone: from, businessName: 'Kaur Tiffins', status: 'active', plan: 'paid', billing: { paidUntil: new Date(Date.now() + 20 * 864e5) } });
+    await db.sessions.insertOne({ _id: from, state: 'LIVE', slug: 'kaurtiffins', draft: {} });
+    await handleMessage({ id: crypto.randomUUID(), from, name: 'K', type: 'interactive', buttonId: 'dom:kaurtiffins.com', text: 'kaurtiffins.com' });
+    assert.ok(net.calls.at(-1).body.includes('https://checkout.stripe.com/c/pay/cs_tap'));
+    const made = new URLSearchParams(net.calls.find((c) => c.url.endsWith('/checkout/sessions')).body);
+    assert.equal(made.get('metadata[kind]'), 'domain');
+    assert.equal(made.get('mode'), 'payment');
+
+    order = (await db.sites.findOne({ slug: 'kaurtiffins' })).domainOrder;
+    available = 'no';
+    await billing.handleStripeEvent({ id: 'evtap', type: 'checkout.session.completed', data: { object: { id: 'cs_tap' } } });
+    assert.ok(!net.calls.some((c) => c.url.includes('/domain/create/')));
+    const refund = net.calls.find((c) => c.url.endsWith('/refunds'));
+    assert.equal(new URLSearchParams(refund.body).get('payment_intent'), 'pi_tap');
+    assert.equal(refund.headers['idempotency-key'], 'refund-pi_tap');
+    assert.equal((await db.sites.findOne({ slug: 'kaurtiffins' })).domainOrder.status, 'refunded');
+    assert.equal(said(net.calls, 'refunded in full'), 1);
+  } finally {
+    net.restore();
+    restore();
+  }
+});
+
+test('the first plan payment offers domains once', async () => {
+  const restore = withConfig({ porkbun: { apiKey: 'pk1_x', secretKey: 'sk1_x' }, render: { apiKey: 'rnd', serviceId: 'srv-1', hostname: 'h' } });
+  const net = mockFetch([
+    ['/domain/checkDomain', { status: 'SUCCESS', domains: { 'bajwagym.com': { avail: 'yes', price: '10.73', additional: { renewal: { price: '10.73' } } } } }],
+    ['/checkout/sessions/', (u) => ({ id: u.split('/').pop(), status: 'complete', payment_status: 'paid', mode: 'payment', amount_total: 900, currency: 'usd', payment_intent: `pi_${u.split('/').pop()}`, metadata: { slug: 'bajwagym', kind: 'service', plan: 'monthly' } })],
+  ]);
+  try {
+    await db.sites.insertOne({ slug: 'bajwagym', ownerPhone: '919000000071', businessName: 'Bajwa Gym', status: 'trial', plan: 'trial', trialEndsAt: new Date(Date.now() + 3600e3) });
+    await billing.confirmCheckout('cs_g1');
+    await new Promise((r) => setTimeout(r, 20));
+    await billing.confirmCheckout('cs_g2');
+    await new Promise((r) => setTimeout(r, 20));
+    const lists = net.calls.filter((c) => c.url.includes('graph.facebook.com') && c.body.includes('"type":"list"'));
+    assert.equal(lists.length, 1);
+    assert.ok(lists[0].body.includes('dom:bajwagym.com'));
+    assert.ok(lists[0].body.includes('moves back to bajwagym'));
+  } finally {
+    net.restore();
+    restore();
+  }
+});

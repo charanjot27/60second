@@ -1,6 +1,6 @@
 import { config, siteUrl } from './config.js';
 import { sessions, sites, leads, isDuplicateKey } from './db.js';
-import { sendText, sendButtons, downloadMedia } from './whatsapp.js';
+import { sendText, sendButtons, sendList, downloadMedia } from './whatsapp.js';
 import { extractBusiness } from './ai.js';
 import { processAndUpload, uploadVideo, deletePhotos, deleteVideos } from './storage.js';
 import { isTaken, suggestSlug, parseSlugInput, slugProblem } from './slug.js';
@@ -32,9 +32,10 @@ import {
   priceLabel,
   autopayAvailable,
   shortDate,
+  createPayment,
 } from './billing.js';
 import { domainsEnabled, normalizeDomain, connectDomain } from './domains.js';
-import { domainShopEnabled, findDomains, quoteDomain, domainPaid, domainPayLink, offerText } from './domainshop.js';
+import { domainShopEnabled, findDomains, quoteDomain, domainPaid, domainPayLink, offerText, domainRows } from './domainshop.js';
 import { money } from './plans.js';
 import { t, LANGS, WELCOME, LANG_BUTTONS } from './i18n.js';
 import { formatPhone } from './render.js';
@@ -450,6 +451,8 @@ const HANDLERS = {
 
     if (cmd === 'leads' || cmd === 'enquiries') return showLeads(s, site);
 
+    if (cmd.startsWith('dom:')) return offerDomain(s, site, cmd.slice(4));
+    if (/^(transfer|move) (my )?domain$/.test(cmd)) return requestTransfer(s, site);
     if (DOMAIN_MENU.has(cmd)) return domainMenu(s, site, cmd === 'renew domain');
     if (cmd === 'domain_find') return showDomainIdeas(s, site);
     if (cmd === 'domain_have') return sendText(s._id, 'Great! Send it like this and I will guide you: *connect domain yourname.com*');
@@ -553,6 +556,7 @@ const HANDLERS = {
     s.state = site ? 'LIVE' : 'NEW';
     if (!site) return HANDLERS.NEW(s);
     const n = Number(cmd);
+    if (cmd.startsWith('dom:')) return offerDomain(s, site, cmd.slice(4));
     if (Number.isInteger(n) && n >= 1 && n <= choices.length) return offerDomain(s, site, choices[n - 1]);
     const typed = normalizeDomain(text);
     if (typed && /\./.test(text)) return offerDomain(s, site, typed);
@@ -1058,6 +1062,14 @@ async function domainMenu(s, site, renewing) {
   );
 }
 
+async function requestTransfer(s, site) {
+  if (!site.domain?.name) return sendText(s._id, "You don't have a domain bought through us. Send *domain* to get one.");
+  for (const admin of config.adminNumbers) {
+    await sendText(admin, `🔁 ${site.businessName} wants to move ${site.domain.name} to their own registrar account. Owner: +${site.ownerPhone}. Unlock it in Porkbun and send them the transfer code.`).catch(() => {});
+  }
+  return sendText(s._id, `👍 *${site.domain.name}* is yours. Our team will send you its transfer code here within 1 working day so you can move it to any registrar you like.`);
+}
+
 async function showDomainIdeas(s, site) {
   if (!domainShopEnabled()) return domainMenu(s, site);
   if (!domainAllowed(s, site)) {
@@ -1076,10 +1088,12 @@ async function showDomainIdeas(s, site) {
   }
   s.state = 'PICK_DOMAIN';
   s.draft = { domains: list.map((d) => d.domain) };
-  return sendText(
+  return sendList(
     s._id,
     `🌐 These are free right now (price for the first year):\n\n${list.map((d, i) => `${i + 1}. *${d.domain}* · ${money(d.charge)}`).join('\n')}\n\n` +
-      'Reply with the number you want, or type another name, for example: *mybusiness.com*'
+      'Tap *See names* and pick one, reply with its number, or type another name, for example: *mybusiness.com*',
+    'See names',
+    domainRows(list)
   );
 }
 
@@ -1107,7 +1121,16 @@ async function offerDomain(s, site, input) {
     await domainPaid(site, { id: `admin-${order.id}`, orderId: order.id, amount: order.charge, domain });
     return;
   }
-  return sendText(s._id, `${offerText(order)}\n\nPay by ${payMethods()} and I'll buy it and connect it for you (this price is held for 1 hour):\n${domainPayLink(site.slug)}`);
+  let checkout = domainPayLink(site.slug);
+  try {
+    checkout = await createPayment(await sites.findOne({ _id: site._id }), { kind: 'domain' });
+  } catch (err) {
+    log.warn('domain checkout failed', { error: err.message });
+  }
+  return sendText(
+    s._id,
+    `${offerText(order)}\n\n👉 Tap to pay by ${payMethods()}. I'll buy it, set it up and connect it for you; if anything goes wrong you get a full refund:\n${checkout}`
+  );
 }
 
 async function handleDomain(s, site, input) {

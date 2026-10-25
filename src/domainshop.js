@@ -4,10 +4,10 @@ import { sites } from './db.js';
 import { porkbun, porkbunEnabled, usdCents } from './porkbun.js';
 import { connectDomain, domainsEnabled } from './domains.js';
 import { alertOwner } from './notify.js';
-import { sendText } from './whatsapp.js';
+import { sendText, sendList } from './whatsapp.js';
 import { invalidate } from './site.js';
 import { classifyIndustry } from './industry.js';
-import { billingEnabled, payLink, shortDate } from './billing.js';
+import { billingEnabled, payLink, shortDate, refundPayment } from './billing.js';
 import { money } from './plans.js';
 import { log } from './log.js';
 
@@ -179,11 +179,44 @@ async function renew(site, order, paymentId) {
   await tellAdmins(`💰 Domain renewed: ${order.domain} for ${site.businessName}, cost $${cost / 100}.`);
 }
 
+export function domainRows(list) {
+  return list.map((d) => ({ id: `dom:${d.domain}`, title: d.domain.length <= 24 ? d.domain : `${d.domain.slice(0, 21)}...`, description: `${d.domain.length > 24 ? `${d.domain} · ` : ''}${money(d.charge)} first year` }));
+}
+
+export async function offerDomains(site) {
+  const list = await findDomains(site);
+  if (!list.length) return false;
+  await sendList(
+    site.ownerPhone,
+    `🌐 Make your website easier to find with its own address instead of ${site.slug}.${config.rootDomain}.\n\nThese names are free right now. Tap one and pay; I buy it, set it up and connect it for you. If it is ever not renewed, your website simply moves back to ${site.slug}.${config.rootDomain}.`,
+    'See names',
+    domainRows(list)
+  );
+  return true;
+}
+
+async function refund(site, pay, domain, reason) {
+  if (String(pay.id || '').startsWith('admin-')) return false;
+  try {
+    const done = await refundPayment(pay);
+    if (done) {
+      await sites.updateOne({ _id: site._id }, { $set: { 'domainOrder.status': 'refunded' } });
+      await alertOwner(site, `${reason} Your payment for *${domain}* has been refunded in full; it reaches your account in a few days. Send *domain* to pick another name.`, 'Domain payment refunded');
+      await tellAdmins(`↩️ Refunded ${money(Number(pay.amount) || 0)} for ${domain} (${site.businessName}).`);
+    }
+    return done;
+  } catch (err) {
+    log.error('domain refund failed', err, { domain });
+    return false;
+  }
+}
+
 export async function domainPaid(site, pay) {
   const fresh = (await sites.findOne({ _id: site._id })) || site;
   const order = fresh.domainOrder;
   if (!order || order.id !== pay.orderId || Number(pay.amount) < order.charge) {
     log.warn('domain payment does not match the order', { slug: site.slug, orderId: pay.orderId });
+    if (await refund(fresh, pay, pay.domain || 'the domain', 'That domain price had changed by the time you paid.')) return;
     await tellAdmins(`⚠️ ${site.businessName} paid ${money(Number(pay.amount) || 0)} for ${pay.domain || 'a domain'}, but it does not match the current order. Please check and refund or set it up by hand. Site: ${siteUrl(site.slug)}`);
     return;
   }
@@ -193,6 +226,7 @@ export async function domainPaid(site, pay) {
   } catch (err) {
     log.error('domain purchase failed', err, { domain: order.domain });
     await sites.updateOne({ _id: site._id }, { $set: { 'domainOrder.status': 'failed', 'domainOrder.error': err.message.slice(0, 200) } });
+    if (err.hold && (await refund(fresh, pay, order.domain, 'The domain was taken or its price changed before I could buy it.'))) return;
     await alertOwner(
       site,
       `Your payment for *${order.domain}* is received. ${err.hold ? 'The domain changed before we could buy it, so' : 'Setting it up is taking longer than usual, so'} our team will message you shortly to sort it out or refund you.`,

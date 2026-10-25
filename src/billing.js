@@ -204,6 +204,27 @@ export async function createPayment(site, { kind = 'service', plan, auto = false
   return provider() === 'razorpay' ? razorpayCheckout(site, purchase, recurring) : stripeCheckout(site, purchase, recurring);
 }
 
+export async function refundPayment(pay) {
+  if (/^pi_/.test(pay.id || '') && stripeEnabled()) {
+    await stripe('POST', '/refunds', { payment_intent: pay.id }, `refund-${pay.id}`);
+    return true;
+  }
+  if (/^pay_/.test(pay.id || '') && razorpayEnabled()) {
+    await rzp('POST', `/payments/${encodeURIComponent(pay.id)}/refund`, {});
+    return true;
+  }
+  return false;
+}
+
+async function offerDomainAfterPayment(site) {
+  const shop = await import('./domainshop.js');
+  if (!shop.domainShopEnabled()) return;
+  const fresh = await sites.findOne({ _id: site._id });
+  if (!fresh || fresh.domain?.name || fresh.customDomain || fresh.domainOffered) return;
+  await sites.updateOne({ _id: site._id }, { $set: { domainOffered: new Date() } });
+  await shop.offerDomains(fresh);
+}
+
 async function claimPayment(id, record) {
   try {
     await payments.insertOne({ _id: id, ...record, at: new Date() });
@@ -263,6 +284,7 @@ async function applyOneTime(site, pay) {
     `✅ Payment received, thank you! ${siteUrl(site.slug)} is live until *${shortDate(paidUntil)}*.\n\nTo pay for the next period, send *pay* anytime.`,
     'Payment received'
   );
+  offerDomainAfterPayment(site).catch((err) => log.warn('domain offer failed', { error: err.message }));
   return { site, kind: 'service', paidUntil };
 }
 
@@ -292,6 +314,7 @@ async function applySubscription(site, sub) {
       `✅ Autopay payment received, thank you! ${siteUrl(site.slug)} stays live and renews by itself ${sub.plan.every} (next around *${shortDate(sub.periodEnd * 1000)}*).\n\nTo stop autopay, send *cancel plan*.`,
       'Payment received'
     );
+    offerDomainAfterPayment(site).catch((err) => log.warn('domain offer failed', { error: err.message }));
   }
   return { site, kind: 'service', paidUntil };
 }

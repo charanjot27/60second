@@ -81,9 +81,11 @@ Every payment is re-checked with the provider's API (status, amount, currency, p
 and each payment id is counted once. Owners get a reminder three days before their paid time ends.
 Unpaid trials, ended periods and cancelled plans go offline at render time and in a 5-minute background sweep.
 
-Owners on a paid plan can send `domain` to get their own address. The bot suggests names that fit the
+Right after an owner's first payment the bot offers fitting domain names as a WhatsApp list; one tap opens
+checkout directly. Owners on a paid plan can also send `domain` at any time. The bot suggests names that fit the
 business, checks them live on Porkbun and shows only free ones with a yearly price (Porkbun price plus
 `DOMAIN_MARGIN`). After payment it registers the name, points its DNS at the site and connects it.
+If the name is taken or its price changed before purchase, the payment is refunded automatically.
 Domains are reminded 30, 7 and 1 days before they expire; an expired domain falls back to the free address.
 
 | Command | What it does |
@@ -94,6 +96,7 @@ Domains are reminded 30, 7 and 1 days before they expire; an expired domain fall
 | `new website` | Starts a new business website on the same number (admins anytime, others once their sites are paid) |
 | `my websites`, `switch name` | Lists the number's websites and picks which one later messages change |
 | `check mybusiness.com` | Checks and prices one domain |
+| `transfer domain` | Asks the team for the domain's transfer code so the owner can move it anywhere |
 | `cancel plan` | Stops autopay and takes the site offline at once |
 | `connect domain mybusiness.com` | Adds the owner's own domain and sends the DNS records for GoDaddy and others |
 | `leads` | Shows the latest enquiries from the website form |

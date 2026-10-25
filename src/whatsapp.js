@@ -133,6 +133,20 @@ export function sendButtons(to, body, buttons) {
   });
 }
 
+export function sendList(to, body, button, rows) {
+  return send(to, {
+    type: 'interactive',
+    interactive: {
+      type: 'list',
+      body: { text: body.slice(0, 1024) },
+      action: {
+        button: button.slice(0, 20),
+        sections: [{ title: 'Options', rows: rows.slice(0, 10).map((r) => ({ id: r.id.slice(0, 200), title: r.title.slice(0, 24), description: (r.description || '').slice(0, 72) })) }],
+      },
+    },
+  });
+}
+
 export function sendTemplate(to, name, lang, params = []) {
   return send(to, {
     type: 'template',
