@@ -37,6 +37,11 @@ export const config = {
     designModel: env.GEMINI_DESIGN_MODEL || 'gemini-3-flash-preview',
     embedModel: env.GEMINI_EMBED_MODEL || 'gemini-embedding-001',
   },
+  embeddings: {
+    provider: (env.EMBED_PROVIDER || 'auto').toLowerCase(),
+    openaiModel: env.OPENAI_EMBED_MODEL || 'text-embedding-3-small',
+    openaiDims: Math.min(1536, Math.max(256, Number(env.OPENAI_EMBED_DIMS) || 512)),
+  },
   knowledge: {
     pagesPerSource: Math.max(1, Number(env.KNOWLEDGE_PAGES_PER_SOURCE) || 10),
     autoRead: env.KNOWLEDGE_AUTO_READ !== 'false',

@@ -1757,11 +1757,12 @@ test('earlier websites for similar businesses are retrieved as references for th
   const vectors = { canteen: [1, 0, 0, 0], dhaba: [0.95, 0.1, 0, 0], salon: [0, 0, 1, 0] };
   const restore = withConfig({ gemini: { apiKey: 'g-key' } });
   const net = mockFetch([
-    ['embedContent', (u, init) => {
-      const text = JSON.parse(init.body).content.parts[0].text.toLowerCase();
-      const key = Object.keys(vectors).find((k) => text.includes(k)) || 'salon';
-      return { embedding: { values: vectors[key] } };
-    }],
+    ['batchEmbedContents', (u, init) => ({
+      embeddings: JSON.parse(init.body).requests.map((r) => {
+        const text = r.content.parts[0].text.toLowerCase();
+        return { values: vectors[Object.keys(vectors).find((k) => text.includes(k)) || 'salon'] };
+      }),
+    })],
   ]);
   const page = (word) => ({
     body: `<header class="nav"><a data-menu>Menu</a></header><section id="about" class="story reveal"><h2 data-split>The ${word} story</h2><figure data-tilt><img></figure></section><footer class="closing"><h2>See you at lunch</h2><ul><li>Thali</li></ul><a href="#top">Top</a></footer>`,
@@ -1997,5 +1998,30 @@ test('the admin teaches the design library on WhatsApp with links, notes and sta
     net.restore();
     restore();
     config.adminNumbers.pop();
+  }
+});
+
+test('OpenAI embeddings power the design library and older Gemini pieces are re-embedded, not re-read', async () => {
+  const kn = await import('../src/knowledge.js');
+  const { embedModelId } = await import('../src/embed.js');
+  const restore = withConfig({ images: { openaiKey: 'sk-x' }, embeddings: { provider: 'auto', openaiModel: 'text-embedding-3-small', openaiDims: 512 } });
+  const vec = (t) => [t.includes('ਰੰਗ') || t.toLowerCase().includes('colour') ? 1 : 0, t.toLowerCase().includes('footer') ? 1 : 0, 0.05];
+  const net = mockFetch([['api.openai.com/v1/embeddings', (u, init) => ({ data: JSON.parse(init.body).input.map((t, index) => ({ index, embedding: vec(t) })) })]]);
+  try {
+    assert.equal(embedModelId(), 'openai:text-embedding-3-small:512');
+    await db.knowledge.insertOne({ source: 'note:old', url: 'note:old', title: 'Colour', text: 'Use colour with purpose and strong contrast.', hash: 'old1', embedding: [0, 0, 1], at: new Date() });
+    await db.knowledge.insertOne({ source: 'note:old', url: 'note:old', title: 'Footer', text: 'A footer closes the page with contact details.', hash: 'old2', embedding: [0, 0, 1], at: new Date() });
+    const done = await kn.reembedLibrary();
+    assert.equal(done >= 2, true);
+    assert.ok(db.knowledge.docs.filter((d) => d.source === 'note:old').every((d) => d.model === 'openai:text-embedding-3-small:512'));
+    const body = JSON.parse(net.calls.find((c) => c.url.includes('/v1/embeddings')).body);
+    assert.equal(body.dimensions, 512);
+    const hits = await kn.retrieve(['ਵੈੱਬਸਾਈਟ ਦੇ ਰੰਗ'], { k: 1 });
+    assert.equal(hits[0].title, 'Colour');
+    assert.ok(!net.calls.some((c) => c.url.includes('generativelanguage')));
+  } finally {
+    await kn.forgetSource('note:old');
+    net.restore();
+    restore();
   }
 });

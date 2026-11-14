@@ -5,13 +5,13 @@ import { config } from './config.js';
 import { knowledge, knowledgeSources } from './db.js';
 import { DEFAULT_SOURCES } from './knowledge-sources.js';
 import { log } from './log.js';
+import { embedTexts, embedModelId, embeddingsEnabled } from './embed.js';
 
 const UA = `Mozilla/5.0 (compatible; site60-design-reader/1.0; +https://${config.rootDomain})`;
 const CHUNK = 1100;
 const OVERLAP = 160;
 const PAGE_CHARS = 250000;
 const SOURCE_CHUNKS = 150;
-const DIMS = 256;
 const SKIP_LINK = /\.(png|jpe?g|gif|webp|svg|ico|mp4|webm|zip|css|js|json|xml|rss)(\?|$)|\/(tag|tags|category|categories|author|authors|page|login|signin|sign-in|signup|sign-up|register|search|cart|account|pricing|feed|wp-json|cdn-cgi)(\/|$)/i;
 const BLOCKS = /<(script|style|noscript|svg|nav|header|footer|aside|form|iframe|template|button|select)\b[\s\S]*?<\/\1>/gi;
 
@@ -23,7 +23,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const hashOf = (text) => crypto.createHash('sha256').update(text).digest('hex').slice(0, 32);
 const clean = (v, max) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 
-export const knowledgeEnabled = () => Boolean(config.gemini.apiKey);
+export const knowledgeEnabled = () => embeddingsEnabled();
 
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', mdash: '—', ndash: '–', hellip: '…', rsquo: '’', lsquo: '‘', rdquo: '”', ldquo: '“', copy: '©' };
 
@@ -96,38 +96,6 @@ export function chunkText(text, size = CHUNK, overlap = OVERLAP) {
   }
   if (current.trim().length > overlap) push();
   return chunks.filter(useful);
-}
-
-function normalise(values) {
-  const v = values.slice(0, DIMS).map(Number);
-  const n = Math.sqrt(v.reduce((s, x) => s + x * x, 0)) || 1;
-  return v.map((x) => Number((x / n).toFixed(5)));
-}
-
-export async function embedBatch(texts, taskType = 'RETRIEVAL_DOCUMENT') {
-  const model = `models/${config.gemini.embedModel}`;
-  const out = [];
-  for (let i = 0; i < texts.length; i += 50) {
-    const slice = texts.slice(i, i + 50);
-    for (let attempt = 0; ; attempt++) {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/${model}:batchEmbedContents`, {
-        method: 'POST',
-        headers: { 'x-goog-api-key': config.gemini.apiKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requests: slice.map((text) => ({ model, content: { parts: [{ text: text.slice(0, 6000) }] }, taskType, outputDimensionality: DIMS })) }),
-        signal: AbortSignal.timeout(60000),
-      });
-      if (res.status === 429 && attempt < 5) {
-        await sleep(2000 * 2 ** attempt);
-        continue;
-      }
-      if (!res.ok) throw new Error(`embed ${res.status}: ${(await res.text()).slice(0, 160)}`);
-      const body = await res.json();
-      out.push(...(body.embeddings || []).map((e) => normalise(e.values || [])));
-      break;
-    }
-    if (i + 50 < texts.length) await sleep(700);
-  }
-  return out;
 }
 
 async function publicHost(hostname) {
@@ -262,11 +230,12 @@ async function store(source, page, doc) {
     if (!(await knowledge.findOne({ hash }))) fresh.push({ text, hash });
   }
   if (!fresh.length) return 0;
-  const vectors = await embedBatch(fresh.map((c) => `${doc.title}\n${c.text}`));
+  const model = embedModelId();
+  const vectors = await embedTexts(fresh.map((c) => `${doc.title}\n${c.text}`));
   let added = 0;
   for (let i = 0; i < fresh.length; i++) {
     if (!vectors[i]?.length) continue;
-    await knowledge.insertOne({ source, url: page, title: clean(doc.title, 200), kind: doc.kind, text: fresh[i].text, hash: fresh[i].hash, embedding: vectors[i], at: new Date() }).catch((err) => {
+    await knowledge.insertOne({ source, url: page, title: clean(doc.title, 200), kind: doc.kind, text: fresh[i].text, hash: fresh[i].hash, embedding: vectors[i], model, at: new Date() }).catch((err) => {
       if (err?.code !== 11000) throw err;
     });
     added++;
@@ -340,6 +309,27 @@ export async function forgetSource(url) {
   return chunks.length;
 }
 
+export async function reembedLibrary() {
+  const model = embedModelId();
+  if (!model) return 0;
+  const stale = (await knowledge.find({}).toArray()).filter((r) => (r.model || 'gemini:gemini-embedding-001:256') !== model);
+  let done = 0;
+  for (let i = 0; i < stale.length; i += 100) {
+    const batch = stale.slice(i, i + 100);
+    const vectors = await embedTexts(batch.map((r) => `${r.title || ''}\n${r.text}`));
+    for (let j = 0; j < batch.length; j++) {
+      if (!vectors[j]?.length) continue;
+      await knowledge.updateOne({ _id: batch[j]._id }, { $set: { embedding: vectors[j], model } });
+      done++;
+    }
+  }
+  if (done) {
+    index = null;
+    log.info('design library re-embedded', { model, pieces: done });
+  }
+  return done;
+}
+
 export async function processPending() {
   if (running || !knowledgeEnabled()) return 0;
   running = true;
@@ -348,6 +338,7 @@ export async function processPending() {
     ? setInterval(() => fetch(`https://${config.rootDomain}/healthz`, { signal: AbortSignal.timeout(10000) }).catch(() => {}), 4 * 60 * 1000)
     : null;
   try {
+    await reembedLibrary();
     for (const def of DEFAULT_SOURCES) {
       if (!(await knowledgeSources.findOne({ url: def.url }))) {
         await knowledgeSources.insertOne({ url: def.url, topic: def.topic, ...(def.pages ? { pages: def.pages } : {}), status: 'pending', at: new Date() });
@@ -390,8 +381,9 @@ export async function knowledgeStatus() {
 
 async function loadIndex() {
   if (index) return index;
+  const model = embedModelId();
   const rows = await knowledge.find({}).toArray();
-  index = rows.filter((r) => r.embedding?.length).map((r) => ({ source: r.source, url: r.url, title: r.title, text: r.text, v: r.embedding }));
+  index = rows.filter((r) => r.embedding?.length && (r.model || 'gemini:gemini-embedding-001:256') === model).map((r) => ({ source: r.source, url: r.url, title: r.title, text: r.text, v: r.embedding }));
   return index;
 }
 
@@ -405,7 +397,7 @@ export async function retrieve(queries, { k = 8, perSource = 2, minScore = 0.45 
   if (!knowledgeEnabled()) return [];
   const rows = await loadIndex();
   if (!rows.length) return [];
-  const vectors = await embedBatch(queries, 'RETRIEVAL_QUERY');
+  const vectors = await embedTexts(queries, 'RETRIEVAL_QUERY');
   const ranked = vectors.map((q) => rows.map((r) => ({ r, score: dot(q, r.v) })).filter((x) => x.score >= minScore).sort((a, b) => b.score - a.score));
   const picked = [];
   const perCount = new Map();
@@ -444,6 +436,8 @@ export async function designKnowledge(site, industryName = '') {
     `Landing page layout, hero section, visual hierarchy and trust for a ${what} offering ${services}`,
     `Choosing photography and imagery that builds trust for a ${what}`,
   ];
+  const own = [...(site.details || []), String(site.ownerWords || '').slice(0, 400)].filter(Boolean).join('. ');
+  if (own) plan.push(`Website design for this business, described by its owner: ${own.slice(0, 700)}`);
   const build = [
     'Responsive layout with CSS grid and flexbox, spacing scale, fluid type with clamp, mobile first',
     'Accessible buttons, links, focus states, touch targets, colour contrast and headings (WCAG 2.2)',

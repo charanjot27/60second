@@ -79,8 +79,8 @@ Norman Group, Laws of UX, Refactoring UI, WCAG 2.2, Practical Typography, Apple 
 CSS and motion guides, accessibility and open-source design resources; see `src/knowledge-sources.js`) are
 read in the background, respecting robots.txt, up to `KNOWLEDGE_PAGES_PER_SOURCE` pages each (GitHub repositories
 through their README, Apple's guidelines through their structured data, PDFs through a PDF reader). The text is
-split into overlapping pieces, embedded with Gemini and stored in MongoDB. For every website the closest pieces
-are retrieved for two tasks: brand and visual design for the art direction, and layout, accessibility, motion,
+split into overlapping pieces, embedded (OpenAI `text-embedding-3-small` when an OpenAI key is set, otherwise Gemini) and stored in MongoDB. When the embedding model changes, stored pieces are re-embedded from their saved text without reading the sources again. For every website the closest pieces
+are retrieved for two tasks (plus one search built from the owner's own words and details, in any language): brand and visual design for the art direction, and layout, accessibility, motion,
 contact, footer and performance for the page build and review, at most two pieces per source so one site never
 dominates. Admins manage it on WhatsApp: `learn https://site.com`, a PDF with the caption `learn`, `learn`
 followed by their own notes, `knowledge` for the status, `knowledge search hero layout` to see what the designer
@@ -275,6 +275,7 @@ test/
 | `IMAGE_PUBLIC_BASE` | Photo URLs on sites |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | Google Gemini: fallback copywriter and designer |
 | `GEMINI_EMBED_MODEL` | Embedding model for similar earlier websites and the design library (default `gemini-embedding-001`) |
+| `EMBED_PROVIDER`, `OPENAI_EMBED_MODEL`, `OPENAI_EMBED_DIMS` | Embeddings for the design library and similar websites: `auto` (OpenAI when its key is set), `openai` or `gemini`; default `text-embedding-3-small` at 512 dimensions |
 | `KNOWLEDGE_PAGES_PER_SOURCE`, `KNOWLEDGE_AUTO_READ` | Pages read per design reference (default 10); set `false` to stop background reading |
 | `OPENAI_API_KEY`, `OPENAI_IMAGE_MODEL` | Optional, best-quality AI pictures |
 | `GEMINI_IMAGE_MODEL` | Gemini picture model, used when the Gemini key allows it |

@@ -1,7 +1,7 @@
-import { config } from './config.js';
 import { designs } from './db.js';
 import { currentLessons, lessonsFor } from './lessons.js';
 import { log } from './log.js';
+import { embedTexts, embedModelId, embeddingsEnabled } from './embed.js';
 import { currentInspirations } from './inspirations.js';
 
 const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -73,17 +73,10 @@ export function profileText(site, brief) {
 }
 
 export async function embedText(text) {
-  if (!config.gemini.apiKey || !text) return null;
+  if (!embeddingsEnabled() || !text) return null;
   try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${config.gemini.embedModel}:embedContent`, {
-      method: 'POST',
-      headers: { 'x-goog-api-key': config.gemini.apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: { parts: [{ text: String(text).slice(0, 4000) }] }, outputDimensionality: 256 }),
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok) throw new Error(`embed ${res.status}`);
-    const values = (await res.json())?.embedding?.values;
-    return Array.isArray(values) && values.length ? values.map((v) => Number(Number(v).toFixed(5))) : null;
+    const [vector] = await embedTexts([String(text).slice(0, 4000)], 'SEMANTIC_SIMILARITY');
+    return vector?.length ? vector : null;
   } catch (err) {
     log.warn('embedding failed', { error: err.message.slice(0, 160) });
     return null;
@@ -120,7 +113,7 @@ export async function similarDesigns(site, industryId, k = 3) {
   const scored = pool
     .filter((d) => d.outline?.length && d.slug !== site.slug && d.outcome !== 'rejected' && d.feedback !== 'negative')
     .map((d) => {
-      const semantic = vector && d.embedding ? cosine(vector, d.embedding) : 0;
+      const semantic = vector && d.embedding && (d.embeddingModel || 'gemini:gemini-embedding-001:256') === embedModelId() ? cosine(vector, d.embedding) : 0;
       const lexical = overlap(profile, d.profile || d.category);
       const sameIndustry = industryId && d.industry === industryId && industryId !== 'general';
       const match = Math.max(semantic, lexical) + (sameIndustry ? 0.15 : 0);
@@ -170,7 +163,7 @@ export async function recordDesign(site, brief, page, images = [], spend = null)
     images: images.map((x) => ({ slot: x.slot, source: x.ai ? 'ai' : x.stock ? x.credit?.source || 'stock' : 'owner', review: x.review || 'picked', prompt: String(x.prompt || '').slice(0, 300) })),
     qa: page?.qa ? { issues: page.qa.issues.slice(0, 12), checks: page.qa.checks } : null,
     profile,
-    ...(embedding ? { embedding } : {}),
+    ...(embedding ? { embedding, embeddingModel: embedModelId() } : {}),
     outline: pageOutline(page?.body),
     footer: footerOutline(page?.body),
     revisions: 0,
