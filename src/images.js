@@ -52,14 +52,22 @@ async function openaiReady() {
   return openaiChecked;
 }
 
-async function viaOpenAI(prompt, shape) {
-  if (!(await openaiReady())) throw new ProviderError(`OpenAI image model ${config.images.openaiModel} is not available to this key`, 403);
-  const res = await fetch('https://api.openai.com/v1/images/generations', {
+function openaiRequest(prompt, shape, quality) {
+  return fetch('https://api.openai.com/v1/images/generations', {
     method: 'POST',
     headers: { Authorization: `Bearer ${config.images.openaiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: config.images.openaiModel, prompt: full(prompt), size: shape.openai, quality: 'high', n: 1 }),
-    signal: AbortSignal.timeout(180000),
+    body: JSON.stringify({ model: config.images.openaiModel, prompt: full(prompt), size: shape.openai, quality, n: 1 }),
+    signal: AbortSignal.timeout(240000),
   });
+}
+
+async function viaOpenAI(prompt, shape) {
+  if (!(await openaiReady())) throw new ProviderError(`OpenAI image model ${config.images.openaiModel} is not available to this key`, 403);
+  let res = await openaiRequest(prompt, shape, config.images.openaiQuality);
+  if (res.status === 400 && config.images.openaiQuality !== 'high') {
+    log.warn('openai image quality not accepted, using high', { quality: config.images.openaiQuality, error: (await res.text()).slice(0, 160) });
+    res = await openaiRequest(prompt, shape, 'high');
+  }
   if (!res.ok) throw new ProviderError(`OpenAI image ${res.status}: ${(await res.text()).slice(0, 160)}`, res.status);
   const b64 = (await res.json())?.data?.[0]?.b64_json;
   if (!b64) throw new Error('OpenAI returned no image');

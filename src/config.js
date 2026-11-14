@@ -94,6 +94,7 @@ export const config = {
   images: {
     openaiKey: env.OPENAI_API_KEY || '',
     openaiModel: env.OPENAI_IMAGE_MODEL || 'gpt-image-1',
+    openaiQuality: (env.OPENAI_IMAGE_QUALITY || 'high').toLowerCase(),
     geminiModel: env.GEMINI_IMAGE_MODEL || '',
     cfModels: (env.CF_IMAGE_MODELS || env.CF_IMAGE_MODEL || '@cf/leonardo/lucid-origin,@cf/black-forest-labs/flux-1-schnell')
       .split(',')

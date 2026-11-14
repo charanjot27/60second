@@ -1706,3 +1706,35 @@ test('by default WhatsApp chat runs on Gemini only and never on Claude', async (
     restore();
   }
 });
+
+test('the OpenAI picture quality is configurable and falls back to high when the model refuses it', async () => {
+  const sharp = (await import('sharp')).default;
+  const png = await sharp({ create: { width: 30, height: 20, channels: 3, background: '#468' } }).png().toBuffer();
+  const { aiImageBuffer } = await import('../src/images.js');
+  const restore = withConfig({ images: { openaiKey: 'sk-test', openaiModel: 'gpt-image-2.5-sunburst', openaiQuality: 'xhigh' } });
+  const sent = [];
+  let refuse = false;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    if (u.includes('/v1/models/')) return new Response('{}', { status: 200 });
+    const body = JSON.parse(init.body);
+    sent.push(body);
+    if (refuse && body.quality === 'xhigh') return new Response('{"error":{"message":"invalid quality"}}', { status: 400 });
+    return new Response(JSON.stringify({ data: [{ b64_json: png.toString('base64') }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const first = await aiImageBuffer('a pharmacy counter', 0);
+    assert.equal(first.provider, 'openai');
+    assert.equal(sent[0].model, 'gpt-image-2.5-sunburst');
+    assert.equal(sent[0].quality, 'xhigh');
+    assert.equal(sent[0].size, '1536x1024');
+    refuse = true;
+    await aiImageBuffer('a pharmacy counter', 1);
+    assert.deepEqual(sent.slice(1).map((b) => b.quality), ['xhigh', 'high']);
+    assert.equal(sent[2].size, '1024x1536');
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
