@@ -22,6 +22,7 @@ Reply with ONE JSON object and nothing else, using exactly these keys:
   "services": ["only the services or products the owner actually mentioned, each under 40 characters, at most 10; never add ones they did not mention"],
   "theme": "one of rose, forest, ocean, sunset, slate, plum that suits the business",
   "slugHint": "short lowercase web name from the business name, letters and digits only",
+  "details": ["every other concrete thing the owner said about the business, one short point each (under 140 characters), at most 15, in the owner's words: their speciality, story, who they serve, how they work, what makes them different, equipment, team, areas covered, any hours, prices, years or numbers they actually stated; never add anything they did not say"],
   "imagePrompts": ["3 short English scene descriptions for illustrative photos of this kind of business, no people's faces, no text or logos"],
   "language": "en, hi or pa: the main language the owner wrote in"
 }
@@ -61,6 +62,7 @@ export function fallbackCopy(text, ownerName = '') {
     theme: 'slate',
     slugHint: '',
     imagePrompts: [],
+    details: [],
     language: 'en',
   };
 }
@@ -86,6 +88,7 @@ export function sanitize(data, rawText, ownerName) {
     imagePrompts: Array.isArray(data.imagePrompts)
       ? data.imagePrompts.map((p) => clean(p, 200)).filter(Boolean).slice(0, 3)
       : [],
+    details: Array.isArray(data.details) ? [...new Set(data.details.map((x) => clean(x, 140)).filter(Boolean))].slice(0, 15) : [],
     language: ['en', 'hi', 'pa'].includes(data.language) ? data.language : 'en',
   };
 }
@@ -108,13 +111,13 @@ export async function extractBusiness(rawText, ownerName = '', lang = '') {
   const deadline = Date.now() + config.ai.timeoutMs;
   const attempts = [];
   if (geminiEnabled()) {
-    attempts.push(['gemini', (ms) => callGemini({ system: SYSTEM_PROMPT, user: text.slice(0, 2000), maxTokens: 1500, temperature: 0.4, timeoutMs: ms, json: true }).then(parseJson)]);
+    attempts.push(['gemini', (ms) => callGemini({ system: SYSTEM_PROMPT, user: text.slice(0, 4000), maxTokens: 2500, temperature: 0.4, timeoutMs: ms, json: true }).then(parseJson)]);
   }
   if (config.ai.apiKey && config.ai.chatModel) {
-    attempts.push([config.ai.chatModel, (ms) => callClaude({ model: config.ai.chatModel, system: SYSTEM_PROMPT, user: text.slice(0, 2000), maxTokens: 2000, effort: 'low', timeoutMs: ms }).then(parseJson)]);
+    attempts.push([config.ai.chatModel, (ms) => callClaude({ model: config.ai.chatModel, system: SYSTEM_PROMPT, user: text.slice(0, 4000), maxTokens: 2500, effort: 'low', timeoutMs: ms }).then(parseJson)]);
   }
   if (geminiEnabled()) {
-    attempts.push(['gemini', (ms) => callGemini({ system: SYSTEM_PROMPT, user: text.slice(0, 2000), maxTokens: 1500, temperature: 0.2, timeoutMs: ms, json: true }).then(parseJson)]);
+    attempts.push(['gemini', (ms) => callGemini({ system: SYSTEM_PROMPT, user: text.slice(0, 4000), maxTokens: 2500, temperature: 0.2, timeoutMs: ms, json: true }).then(parseJson)]);
   }
   let result = null;
   for (const [name, run] of attempts) {

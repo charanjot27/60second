@@ -8,7 +8,7 @@ import { invalidate } from './site.js';
 import { enqueue } from './queue.js';
 import { allowAiCall, allowPhoto, allowAdvanced, allowNewSite, allowEdit, allowVoice, track } from './limits.js';
 import { makeDesign } from './design.js';
-import { generateImage, fallbackPrompts } from './images.js';
+import { generateImage, fallbackPrompts, referenceBuffers, paidImages } from './images.js';
 import { sourceSiteImages } from './photos.js';
 import { classifyIndustry, industryAction } from './industry.js';
 import { inspectPhotos, arrangeOwnPhotos } from './assets.js';
@@ -304,7 +304,7 @@ async function understand(s, words, viaVoice) {
     t(l, 'confirm', {
       name: fields.businessName,
       location,
-      services: fields.services?.length ? fields.services.join(', ') : t(l, 'none'),
+      services: (fields.services?.length ? fields.services.join(', ') : t(l, 'none')) + (fields.details?.length ? `\n\n📝 ${fields.details.slice(0, 8).join('\n📝 ')}` : ''),
     }),
     [
       { id: 'proceed', title: t(l, 'proceed') },
@@ -858,6 +858,7 @@ async function publish(s) {
     city: d.city,
     area: d.area || '',
     services: d.services ?? [],
+    details: d.details ?? [],
     theme: d.theme,
     language: s.lang || d.language,
     ownerWords: d.ownerWords || '',
@@ -956,8 +957,9 @@ async function buildDesign(site, ownerPhone) {
     shoot: brief?.shoot,
     acceptance: (brief?.images || []).map((r) => r.acceptance_criteria),
   };
+  const references = paidImages() ? await referenceBuffers(site.photos) : [];
   const [aiImages, page] = await Promise.all([
-    sourceSiteImages({ prompts, queries, context, ownerPhone, skip, meter }),
+    sourceSiteImages({ prompts, queries, context, ownerPhone, skip, meter, references }),
     generateSitePage({ ...site, design }, brief, meter, memory).catch((err) => {
       log.warn('page generation failed', { error: err.message });
       return null;
@@ -984,7 +986,7 @@ function briefSummary(brief) {
 }
 
 function snapshot(site) {
-  const keys = ['style', 'businessName', 'tagline', 'description', 'services', 'city', 'category', 'design', 'page', 'aiImages', 'brief'];
+  const keys = ['style', 'businessName', 'tagline', 'description', 'services', 'details', 'city', 'category', 'design', 'page', 'aiImages', 'brief'];
   return Object.fromEntries(keys.filter((k) => site[k] !== undefined).map((k) => [k, site[k]]));
 }
 

@@ -101,13 +101,13 @@ async function thumbnail(buffer) {
 
 const aiFirst = () => paidImages() && config.images.source !== 'mixed';
 
-async function makeAi(prompt, slot, meter) {
+async function makeAi(prompt, slot, meter, refs = []) {
   const reserved = Boolean(meter && paidImages());
   if (reserved && !meter.reserveImage()) {
     log.info('image budget reached', { slot: slot + 1 });
     return null;
   }
-  const buffer = await aiImageBuffer(prompt, slot).catch((err) => {
+  const buffer = await aiImageBuffer(prompt, slot, refs).catch((err) => {
     log.warn('ai candidate failed', { error: err.message });
     return null;
   });
@@ -116,9 +116,9 @@ async function makeAi(prompt, slot, meter) {
   return buffer;
 }
 
-async function slotCandidates(slot, prompt, query, meter) {
+async function slotCandidates(slot, prompt, query, meter, refs) {
   const kind = SLOT_SHAPES[slot];
-  const ai = await makeAi(prompt, slot, meter);
+  const ai = await makeAi(prompt, slot, meter, refs);
   const wantStock = query && stockEnabled() && (!aiFirst() || !ai);
   const stock = wantStock ? await searchStock(query, kind) : [];
   const list = stock.map((c) => ({ ...c }));
@@ -169,8 +169,8 @@ async function pickBest(slots, context) {
   return picks;
 }
 
-function redraw(prompt, fix, slot, meter) {
-  return makeAi(`${prompt} Correction from the photo editor: ${fix}`, slot, meter);
+function redraw(prompt, fix, slot, meter, refs) {
+  return makeAi(`${prompt} Correction from the photo editor: ${fix}`, slot, meter, refs);
 }
 
 function defaultPick(cands) {
@@ -191,10 +191,10 @@ async function finalize(c, slot, ownerPhone, prompt) {
   return { ...(await processAndUpload(buffer, ownerPhone)), stock: true, credit: c.credit, prompt, alt: c.alt };
 }
 
-export async function sourceSiteImages({ prompts, queries = [], context = {}, ownerPhone, skip = [], meter = null }) {
+export async function sourceSiteImages({ prompts, queries = [], context = {}, ownerPhone, skip = [], meter = null, references = [] }) {
   const briefs = prompts.slice(0, 4);
   const skipped = new Set(skip);
-  const slots = await Promise.all(briefs.map((prompt, i) => (skipped.has(i) ? [] : slotCandidates(i, prompt, queries[i], meter))));
+  const slots = await Promise.all(briefs.map((prompt, i) => (skipped.has(i) ? [] : slotCandidates(i, prompt, queries[i], meter, references))));
   let picks = new Map();
   const hasChoice = slots.some((c) => c.length > 0);
   context = { ...context, slots: SLOT_NAMES };
@@ -211,7 +211,7 @@ export async function sourceSiteImages({ prompts, queries = [], context = {}, ow
       let index = picks.has(i) ? picks.get(i) : defaultPick(cands);
       if (index === -1) {
         const fix = picks.fixes?.get(i);
-        const buffer = fix ? await redraw(briefs[i], fix, i, meter) : null;
+        const buffer = fix ? await redraw(briefs[i], fix, i, meter, references) : null;
         if (buffer) {
           log.info('picture redrawn', { slot: i + 1, fix });
           return { ...(await finalize({ source: 'AI', buffer }, i, ownerPhone, `${briefs[i]}. Correction: ${fix}`)), slot: i, review: 'redrawn' };

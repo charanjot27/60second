@@ -27,11 +27,19 @@ DESIGN STANDARD
 Design like the best of Apple, Aesop, Stripe and the Awwwards Site of the Day, translated for a local business: restraint, one clear idea per section, generous whitespace, confident large type, real-feeling photography given room to breathe, depth from layering and light rather than shadows on everything, and details that reward a second look (hairline rules, consistent radius scale, an 8px spacing rhythm, careful optical alignment). Every choice must make the business look more trustworthy and more desirable to its own customers.
 
 INSPIRATION LIBRARY (what wins Awwwards, CSS Design Awards and design hackathons; choose what fits this business, never all of it)
-- Hero: kinetic split-word headline, an oversized typographic hero with an inset picture, a full-bleed photograph with a calm text panel, a 3D scene (rotating point globe, flowing 3D wave field, cursor-reactive constellation, soft drifting light orbs) behind the headline, layered parallax depth.
+- Hero: kinetic split-word headline, an oversized typographic hero with an inset picture, a full-bleed photograph with a calm text panel, a story-style photo viewer (full-width frame, progress bars on top, tap to move, slow zoom on each photo, a small caption and an "01 / 06" counter) with the profile-like identity block overlapping its bottom edge, a light canvas scene (point globe, wave field, constellation, drifting light orbs, or a magnetic particle swarm that gathers around the cursor) behind the headline, layered parallax depth.
+- Business story motif: one small, hand-drawn-quality inline SVG illustration animated with CSS keyframes that tells what the business does in two seconds: a moving truck rolling along a road line with boxes stacked in the back for a mover, a mower leaving a lighter stripe on a lawn for a gardener, steam rising from a cup for a cafe, a needle and thread stitching for a tailor, a door key turning for property. It stays under a few kilobytes and plays quietly.
 - Storytelling: sticky split-screen where the text scrolls past a pinned picture, a horizontal scroll gallery pinned while the page scrolls, stacking cards that pile up as you scroll, a scroll-linked progress line, numbered chapters.
 - Layout: bento grids of mixed card sizes, editorial columns with pull quotes, an infinite marquee band of services, overlapping picture frames, asymmetric grids, full-bleed colour bands.
-- Interaction: magnetic buttons, fill-sweep or text-swap buttons, 3D tilt cards, spotlight cards following the cursor, a custom cursor with a "View" label over pictures, picture zoom inside its frame on hover, a smooth accordion FAQ, tabs for service categories.
+- macOS-grade interface: a Liquid Glass navigation bar or floating pill of controls over imagery, a Dock-like row of quick actions that magnifies under the cursor, spring easing, crisp hairlines, generous rounding, words of a key paragraph lighting up one by one as the visitor scrolls.
+- Interaction: magnetic buttons, a cursor that snaps to and outlines buttons, fill-sweep or text-swap buttons, 3D tilt cards, spotlight cards following the cursor, a custom cursor with a "View" label over pictures, picture zoom inside its frame on hover, a smooth accordion FAQ, tabs for service categories.
 - Finish: a refined light/dark mode switch, subtle film grain or texture, hairline grid lines, gradient glows in the brand colours, a reading progress bar.
+
+KEEP IT LIGHT AND CALM
+Choose a few strong ideas and execute them perfectly; never stack every effect. A visitor should feel delight, not overwhelm. At most one canvas scene, one signature interaction and one story motif per page; everything else is quiet craft (type, spacing, photography, hairlines). The page must load fast on a mid-range phone on 4G.
+
+USE EVERYTHING THE OWNER TOLD YOU
+The facts include "ownerWords" (the owner's full message or voice-note transcript) and "ownerDetails" (every concrete detail they mentioned beyond name, place and services: speciality, story, who they serve, how they work, what makes them different, any hours, prices or numbers they stated). Build the copy, the sections and the trust content from these details; they are the difference between a generic site and their site. "ownerPhotos" describes what their photos show: let the photos decide the look and the sections (a hotel's rooms, a bakery's cakes, a mover's truck).
 
 THE DESIGN SEED IS MANDATORY
 You receive a seed: style archetype, colour mood, typography direction, hero layout and motion personality, chosen at random by the system. Follow it. The business decides how far to push it: a brutalist seed for a children's clinic becomes soft brutalism (bold structure, friendly colours, rounded type). Never let the seed produce something unsuitable for the business.
@@ -75,7 +83,8 @@ Reply with JSON only:
   "palette": {"bg": "#hex", "surface": "#hex", "ink": "#hex", "muted": "#hex", "line": "#hex", "dominant": "#hex", "supporting": ["#hex"], "accent": "#hex", "onAccent": "#hex", "neutral": "#hex", "success": "#hex", "warning": "#hex", "error": "#hex"},
   "darkPalette": {"bg": "#hex", "surface": "#hex", "ink": "#hex", "muted": "#hex", "line": "#hex", "accent": "#hex", "onAccent": "#hex"},
   "wowMoments": ["three to five signature moments from the INSPIRATION LIBRARY, each tied to a section and to this business"],
-  "scene": "globe, wave, constellation, orbs or none: the one 3D scene for the hero or a feature band, only when it suits the business",
+  "scene": "globe, wave, constellation, orbs, swarm or none: at most one light canvas scene for the hero or a feature band, only when it truly suits the business",
+  "storyMotif": "the one small animated SVG illustration of what this business does, or none",
   "fonts": {"display": {"family": "Google Fonts family", "weights": "400;700"}, "body": {"family": "Google Fonts family", "weights": "400;500;600"}, "script": {"family": "only for Punjabi or Hindi pages", "weights": "400;600"}},
   "typographicMoment": "the one typographic moment (an oversized word, italic within a heading, outlined text, a vertical label, a huge number)",
   "layout": ["one short line per section describing its composition, in page order; every section different"],
@@ -98,6 +107,7 @@ Every site has both. "mode" is the default; "darkPalette" (or the light palette,
 
 PICTURES (you are also the photographer and art director; the image model only sees your "prompt", so it must be excellent)
 - The pictures must look like real photographs a skilled local photographer took for this business, never like AI art: documentary and editorial realism, candid unposed moments, real materials with wear and texture, believable everyday clutter where it belongs, natural available light, a slight lens imperfection or subtle film grain, never glossy, symmetrical, plastic or over-perfect. Never use the words stunning, beautiful, perfect, hyper-realistic, 8K or cinematic masterpiece; describe the photograph concretely instead (camera, lens, aperture, light, the film look such as "Kodak Portra 400 tones").
+- When the owner sent photos ("ownerPhotos"), their real business is the reference: the system attaches those photos to the image model. Write every prompt so the new picture shows the same place and style (its architecture, rooms, materials, colours, decor and light as described in ownerPhotos) from a new angle or moment, for example another view of the same hotel room, lobby or terrace, never a different-looking place.
 - First set one "shoot" for the whole site: one location, one time of day, one light, one lens, one colour grade, so the four pictures look like one professional commission, not stock.
 - Each "prompt" is one rich paragraph of natural language, written the way a top photographer briefs a retoucher, in this order: what the picture is for and its format ("A wide 3:2 editorial hero photograph for a dental clinic in Ludhiana"), the exact subject with concrete, specific details of this business and its services, the setting and local context (architecture, materials, signage-free streets, climate, typical interiors of that city), the composition and focal point (rule of thirds, where the subject sits, foreground and background layers, and which side is left calm and uncluttered for the page headline), camera and lens (for example "full-frame, 35mm at f/2.8, eye level"), light (direction, softness, time of day), colour grade tied to the palette, mood, and realism notes (true-to-life textures, natural imperfections, believable scale, no plastic sheen, no over-saturation, no HDR glow).
 - Picture people only as hands at work, figures from behind, or small figures at a distance; never a recognisable face, and no text, letters, logos or watermarks unless exact_in_image_text_if_required asks for text that belongs in the scene.
@@ -116,8 +126,12 @@ const PAGE_PROMPT = `You are an award-level web designer and front-end developer
 DESIGN STANDARD
 Build it the way Apple's web team would build a page for this business: calm, precise, premium, and alive. Large confident typography, generous whitespace on an 8px rhythm, photography given real space, one idea per section, layered depth, and motion that feels physical (cubic-bezier(.2,.8,.2,1) style easing, short distances, never bouncy unless the brand is playful). Finish every detail: consistent radius scale, hairline borders, optical alignment, balanced headline wraps (text-wrap: balance), no orphans in headings.
 
-WOW FACTOR (the art direction's "wowMoments" and "scene" are mandatory; this page should be able to win a design hackathon)
-- Build every wow moment from the art direction for real, with the hooks below and CSS: kinetic typography, a 3D scene, pinned horizontal galleries, stacking cards (position: sticky with growing top offsets), marquee bands (a CSS keyframe loop of a duplicated row), spotlight and tilt cards, magnetic buttons, a custom cursor with labels, scroll-linked progress, bento grids, overlapping frames, gradient glows.
+LIGHTWEIGHT, NEVER OVERWHELMING (as important as the design itself)
+- The finished page must stay light: concise CSS (aim for under 35 KB), no huge inline SVG, no image-heavy decoration, no effect that runs constantly without purpose. At most one data-scene per page, and only when the art direction asks for one.
+- Use effects with restraint: one signature interaction, one story motif, purposeful reveals. Calm pages with perfect type and photography beat busy pages.
+
+WOW FACTOR (the art direction's "wowMoments" are mandatory; this page should be able to win a design hackathon through craft, not through quantity)
+- Build every wow moment from the art direction for real, with the hooks below and CSS: kinetic typography, a story-style photo viewer, a light canvas scene, Liquid Glass controls, a Dock-like action row, words lighting up on scroll, the story motif, pinned horizontal galleries, stacking cards (position: sticky with growing top offsets), marquee bands (a CSS keyframe loop of a duplicated row), spotlight and tilt cards, magnetic buttons, a custom cursor with labels, scroll-linked progress, bento grids, overlapping frames, gradient glows.
 - Polish beats quantity: every effect is smooth at 60fps, never hides content, never slows the call to action, and the page is still complete and beautiful with motion reduced or scripts off.
 
 LIGHT AND DARK MODE (required)
@@ -166,7 +180,11 @@ INTERACTION AND MOTION (follow the motion personality)
 SOUND
 - Only when the art direction sets sound to true: add one small, elegant button with data-sound-toggle (sound is off until the visitor turns it on) and style its pressed state with [aria-pressed="true"]. The trusted script plays soft generated clicks on buttons and links; add data-sound="chime" to the one or two elements that deserve a little chime. Otherwise add no sound at all.
 
+STORY MOTIF
+- When the art direction has a storyMotif, draw it as one compact inline SVG (simple shapes, the palette colours, under about 60 elements) and animate it with CSS keyframes on transform and opacity only, for example the truck's wheels turning while it rolls along a dashed road line, or a mower moving across a lawn and leaving a lighter stripe behind it. Give the svg role="img" and an aria-label. Under prefers-reduced-motion it simply stands still.
+
 COPY
+- Use every detail in "ownerDetails" and "ownerWords": the owner's own story, speciality, way of working and stated facts become the about section, the service descriptions, the trust points and the FAQ.
 - Warm, specific, substantial copy in the tone of the business and in the requested language (English plus their language if they mix): a headline and supporting line that say what the business does and for whom, an about section of 2 to 3 short paragraphs, one or two sentences for every service explaining what the customer gets, a short "how it works" (message on WhatsApp, talk it through, get it done), and a 3 to 5 question FAQ answered only from the facts.
 - Cover what customers of this business class want to know (given under BUSINESS CLASS), using only the facts given.
 - Never use: "Welcome to ...", "We provide the best quality services", revolutionize, unlock, seamless, supercharge, elevate, "in today's fast-paced world", lorem ipsum.
@@ -214,6 +232,12 @@ INTERACTION HOOKS (a trusted script wires these up; everything must still look r
 - data-tabs on a wrapper holding buttons with data-tab="x" and panels with data-panel="x": the selected ones get class "on".
 - data-carousel on a wrapper holding a scroller with data-track and buttons with data-prev and data-next.
 - data-sound-toggle and data-sound="chime" as described under SOUND.
+- data-scene="swarm": a field of fine square particles in the palette (the element's color, --scene-glow and --scene-accent) forming a slowly turning cloud; on desktop the particles are pulled toward the cursor like a magnet and swirl around it. Best on a dark hero or feature band; data-density="400" to 1400.
+- data-stories="5000" on a picture frame with an explicit aspect-ratio or height, whose direct children are slides marked data-slide (each a figure holding one picture with object-fit: cover and an optional caption): a story viewer with progress bars on top, auto-advancing every 5 seconds, paused on hover and offscreen, tap left or right third (or arrow keys) to move, a slow zoom on the active picture. An element with data-story-count inside it shows "01 / 06". Owner photos as slides: <template data-each="photos"><figure data-slide><img src="{{lg}}" alt="{{alt}}" width="{{w}}" height="{{h}}"></figure></template>; otherwise use the hero and section pictures inside their data-if blocks.
+- data-glass on a nav bar, floating pill, small control or caption over a picture: macOS Liquid Glass (blur, saturation, refraction on supporting browsers, a rim light and a specular highlight that follows the cursor). The system styles it; set --glass-tint and --glass-alpha to adjust, keep text contrast at 4.5:1, never use ::after on it, and use it on at most a few elements, not on ordinary cards.
+- data-dock on a horizontal row of small square actions or icons: like the macOS Dock, items magnify and lift as the cursor passes (the system sets their transform, so give them no transform of your own).
+- data-highlight on a key paragraph or statement: as the visitor scrolls, its words light up one by one (span.hw gains class "lit"; dimmed words use --hw-dim). Style .hw.lit for extra emphasis if you like (colour or a gradient). Use it on one or two statements only.
+- The custom cursor (data-cursor) snaps toward buttons and links and gains class "stick" with --cw and --ch set to the button size: style .stick to morph into an outline around the button.
 - data-scene="globe" | "wave" | "constellation" | "orbs" on an empty div with a set height (or absolutely filling a section): the script draws a live 3D scene in a canvas inside it using the div's CSS color (and --scene-glow for orbs), reacting gently to the cursor, paused offscreen and still when motion is reduced. Layer text above it with position: relative and z-index. data-density="300" to 900 sets the number of points for globe.
 - data-theme-toggle on a button: switches html[data-theme] between light and dark, remembers the choice, sets aria-pressed, and adds class "theme-switching" on html for 450ms.
 - data-progress on any element: the script sets --p from 0 to 1 as it travels through the viewport, for scroll-linked effects such as transform: scaleX(var(--p)) or a rotating ornament.
@@ -271,7 +295,8 @@ function facts(site) {
     tagline: site.tagline,
     description: site.description,
     services: site.services || [],
-    ownerWords: String(site.ownerWords || '').slice(0, 1500),
+    ownerWords: String(site.ownerWords || '').slice(0, 3000),
+    ownerDetails: site.details || [],
     language: site.language || 'en',
     ownerPhotoCount: (site.photos || []).filter((p) => !p.ai).length,
     hasAddress: Boolean(site.location?.address || site.location?.name),
@@ -292,7 +317,7 @@ const HOOK_ATTRS = [
   'data-tilt', 'data-magnetic', 'data-speed', 'data-rotate', 'data-tabs', 'data-tab', 'data-panel',
   'data-carousel', 'data-track', 'data-prev', 'data-next', 'data-split', 'data-menu', 'data-cursor',
   'data-sound-toggle', 'data-sound', 'aria-pressed', 'data-scene', 'data-density', 'data-progress', 'data-hscroll',
-  'data-hs-track', 'data-theme-toggle', 'data-cursor-label',
+  'data-hs-track', 'data-theme-toggle', 'data-cursor-label', 'data-glass', 'data-dock', 'data-highlight', 'data-stories', 'data-slide', 'data-story-count',
 ];
 const SVG_ATTRS = [
   'viewBox', 'd', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'stroke-dasharray',
@@ -592,7 +617,7 @@ function visibleText(html) {
 
 export function auditPage(page, site, filled) {
   const issues = [];
-  const known = [site.businessName, site.description, site.tagline, site.ownerWords, ...(site.services || [])].join(' ').toLowerCase();
+  const known = [site.businessName, site.description, site.tagline, site.ownerWords, ...(site.services || []), ...(site.details || [])].join(' ').toLowerCase();
   const text = visibleText(page.body);
   for (const [re, what] of FAKE_FACTS) {
     const m = re.exec(text);

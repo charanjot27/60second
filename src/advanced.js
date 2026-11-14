@@ -104,9 +104,27 @@ function galleryItem(p, i, total, name, tag) {
   return `<figure class="ph"><button type="button" data-i="${i}" aria-label="Open photo ${i + 1} of ${total}"><img src="${e(p.sm)}" srcset="${e(p.sm)} 480w, ${e(p.lg)} 1200w" sizes="(min-width:900px) 33vw, 90vw" width="${Number(p.w) || 1200}" height="${Number(p.h) || 1200}" alt="${e(`${name} photo ${i + 1}`)}" data-lg="${e(p.lg)}" loading="lazy" decoding="async"></button>${tag ? '<span class="tag">AI illustration</span>' : ''}</figure>`;
 }
 
-const SHELL_CSS = `*,*::before,*::after{box-sizing:border-box}html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+export const SHELL_CSS = `*,*::before,*::after{box-sizing:border-box}html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
 body{margin:0;-webkit-font-smoothing:antialiased;padding-top:env(safe-area-inset-top)}img{max-width:100%;display:block}
 :where(a,button,input,textarea,select,summary,[tabindex]):focus-visible{outline:3px solid currentColor;outline-offset:3px}
+[data-glass]{position:relative;isolation:isolate;-webkit-backdrop-filter:blur(16px) saturate(180%);backdrop-filter:blur(16px) saturate(180%);background:color-mix(in srgb,var(--glass-tint,#fff) var(--glass-alpha,14%),transparent);box-shadow:inset 0 1px 0 rgb(255 255 255/.55),inset 0 -1px 0 rgb(255 255 255/.12),inset 0 0 0 1px rgb(255 255 255/.16),0 14px 34px -16px rgb(0 0 0/.45);transition:transform .35s cubic-bezier(.2,.8,.2,1),box-shadow .35s cubic-bezier(.2,.8,.2,1)}
+.lg-ok [data-glass]{backdrop-filter:url(#lg-refract) blur(3px) saturate(185%) brightness(1.05)}
+[data-glass]::after{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;background:radial-gradient(160px circle at var(--gx,22%) var(--gy,0%),rgb(255 255 255/.4),transparent 62%),linear-gradient(180deg,rgb(255 255 255/.16),transparent 48%);mix-blend-mode:screen}
+[data-glass]:active{transform:scale(.97)}
+[data-dock]>*{transform:translateY(calc((1 - var(--dock,1)) * 22px)) scale(var(--dock,1));transform-origin:50% 100%;transition:transform .22s cubic-bezier(.2,.8,.2,1)}
+.js [data-highlight] .hw{opacity:var(--hw-dim,.2);transition:opacity .4s cubic-bezier(.2,.8,.2,1),color .4s,filter .4s}.js [data-highlight] .hw.lit{opacity:1}
+[data-stories]{position:relative;overflow:hidden;touch-action:pan-y;cursor:pointer}
+[data-stories]>[data-slide]+[data-slide]{display:none}
+.js [data-stories]>[data-slide]{display:block;position:absolute;inset:0;opacity:0;transition:opacity .7s cubic-bezier(.2,.8,.2,1)}
+.js [data-stories]>[data-slide]:first-child{position:relative}
+.js [data-stories]>[data-slide].on{opacity:1;z-index:1}
+.js [data-stories]>[data-slide].on img{animation:st-zoom 9s ease-out both}
+.st-bars{position:absolute;z-index:3;left:16px;right:16px;top:14px;display:flex;gap:6px;pointer-events:none}
+.st-bars span{flex:1;height:2px;border-radius:2px;background:rgb(255 255 255/.38);overflow:hidden}
+.st-bars span::after{content:"";display:block;height:100%;background:#fff;transform:scaleX(0);transform-origin:left}
+.st-bars span.done::after{transform:none}.st-bars span.run::after{animation:st-fill var(--st-ms,5s) linear forwards}
+[data-stories].paused .st-bars span.run::after,[data-stories].offscreen .st-bars span.run::after{animation-play-state:paused}
+@keyframes st-fill{to{transform:none}}@keyframes st-zoom{from{transform:scale(1.06)}to{transform:none}}
 .sys-footer{padding:28px 20px calc(96px + env(safe-area-inset-bottom));text-align:center;font-size:14px;opacity:.85}
 .sys-footer p{margin:4px 0}.sys-footer a{font-weight:600}
 .sys-footer.slim{padding-top:14px;font-size:12.5px;opacity:.7}

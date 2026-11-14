@@ -1871,3 +1871,33 @@ test('a website enquiry reaches the enquiry number and the email, with the visit
     restore();
   }
 });
+
+test('the owner\'s extra details are kept, and the new interaction hooks survive sanitising', async () => {
+  const { sanitize } = await import('../src/ai.js');
+  const out = sanitize({ businessName: 'Sandhu Movers', details: ['We pack with blankets and bubble wrap', 'Interstate moves to Delhi', 'We pack with blankets and bubble wrap', ''] }, 'x', '');
+  assert.deepEqual(out.details, ['We pack with blankets and bubble wrap', 'Interstate moves to Delhi']);
+  const { sanitizeBody, auditPage } = await import('../src/generate.js');
+  const html = sanitizeBody('<nav data-glass><a href="#a">A</a></nav><div data-stories="5000"><figure data-slide><span data-story-count></span></figure></div><p data-highlight>Words</p><div data-dock><a href="#b">B</a></div><div data-scene="swarm"></div>');
+  for (const attr of ['data-glass', 'data-stories="5000"', 'data-slide', 'data-story-count', 'data-highlight', 'data-dock', 'data-scene="swarm"']) assert.ok(html.includes(attr), attr);
+  const issues = auditPage({ css: '', body: '<p>Shifting from Rs. 4500 only</p>' }, { businessName: 'X', details: ['Shifting from Rs. 4500 only'] }, '').issues;
+  assert.ok(!issues.some((x) => x.includes('a price')));
+});
+
+test('owner photos are sent to GPT as references so new pictures match the real place', async () => {
+  const { aiImageBuffer } = await import('../src/images.js');
+  const sharp = (await import('sharp')).default;
+  const restore = withConfig({ images: { openaiKey: 'sk-x', openaiModel: 'gpt-image-2.5-sunburst', openaiQuality: 'high' } });
+  const png = (await sharp({ create: { width: 1536, height: 1024, channels: 3, background: '#888' } }).png().toBuffer()).toString('base64');
+  const net = mockFetch([['api.openai.com/v1/images/edits', { data: [{ b64_json: png }] }], ['api.openai.com/v1/models', {}]]);
+  try {
+    const ref = await sharp({ create: { width: 64, height: 64, channels: 3, background: '#a52' } }).jpeg().toBuffer();
+    const buffer = await aiImageBuffer('A hotel room with a balcony', 0, [ref, ref]);
+    assert.equal(buffer.provider, 'openai');
+    const call = net.calls.find((c) => c.url.includes('/images/edits'));
+    assert.ok(call, 'used the edits endpoint');
+    assert.ok(!net.calls.some((c) => c.url.includes('/images/generations')));
+  } finally {
+    net.restore();
+    restore();
+  }
+});

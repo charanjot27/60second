@@ -158,6 +158,257 @@ function enhance() {
     }
   }
 
+  function swarm(el) {
+    const canvas = d.createElement('canvas');
+    canvas.setAttribute('aria-hidden', 'true');
+    canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none';
+    if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
+    el.prepend(canvas);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    let w = 1;
+    let h = 1;
+    let mx = -9999;
+    let my = -9999;
+    let near = false;
+    let visible = true;
+    let frame = 0;
+    let colours = [];
+    const read = () => {
+      const s = getComputedStyle(el);
+      const ink = s.color || '#fff';
+      colours = [ink, s.getPropertyValue('--scene-glow').trim() || ink, s.getPropertyValue('--scene-accent').trim() || ink];
+    };
+    const size = () => {
+      const b = el.getBoundingClientRect();
+      const ratio = Math.min(devicePixelRatio || 1, 2);
+      w = Math.max(1, b.width);
+      h = Math.max(1, b.height);
+      canvas.width = Math.round(w * ratio);
+      canvas.height = Math.round(h * ratio);
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    };
+    const n = Math.min(1400, Math.max(200, parseInt(el.dataset.density, 10) || 1000));
+    const parts = Array.from({ length: n }, (_, i) => {
+      const u = Math.random() * 2 - 1;
+      const a = Math.random() * Math.PI * 2;
+      const r = 0.3 + 0.7 * Math.pow(Math.random(), 0.55);
+      const q = Math.sqrt(1 - u * u);
+      return { hx: Math.cos(a) * q * r, hy: u * r, hz: Math.sin(a) * q * r, x: Math.random() * w, y: Math.random() * h, vx: 0, vy: 0, s: 1 + Math.random() * 2.4, c: i % 9 === 0 ? 2 : i % 4 === 0 ? 1 : 0 };
+    });
+    const step = (time, settle) => {
+      const t = time * 0.00008;
+      const cos = Math.cos(t);
+      const sin = Math.sin(t);
+      const R = Math.min(w, h) * 0.5;
+      const reach = Math.max(120, Math.min(w, h) * 0.28);
+      ctx.clearRect(0, 0, w, h);
+      parts.forEach((p) => {
+        const x3 = p.hx * cos + p.hz * sin;
+        const z3 = -p.hx * sin + p.hz * cos;
+        const depth = (z3 + 1) / 2;
+        const tx = w / 2 + x3 * R * 1.35;
+        const ty = h / 2 + p.hy * R;
+        if (settle) {
+          p.x = tx;
+          p.y = ty;
+        } else {
+          let ax = (tx - p.x) * 0.010;
+          let ay = (ty - p.y) * 0.010;
+          if (near) {
+            const dx = mx - p.x;
+            const dy = my - p.y;
+            const dist = Math.hypot(dx, dy) || 1;
+            if (dist < reach) {
+              const f = 1 - dist / reach;
+              const pull = dist < 34 ? -1.4 : 0.9;
+              ax += (dx / dist) * f * pull - (dy / dist) * f * 0.75;
+              ay += (dy / dist) * f * pull + (dx / dist) * f * 0.75;
+            }
+          }
+          p.vx = (p.vx + ax) * 0.88;
+          p.vy = (p.vy + ay) * 0.88;
+          p.x += p.vx;
+          p.y += p.vy;
+        }
+        ctx.globalAlpha = 0.18 + depth * 0.82;
+        ctx.fillStyle = colours[p.c];
+        const s = p.s * (0.6 + depth * 0.6);
+        ctx.fillRect(p.x, p.y, s, s);
+      });
+      ctx.globalAlpha = 1;
+    };
+    read();
+    size();
+    new MutationObserver(read).observe(root, { attributes: true, attributeFilter: ['data-theme'] });
+    if ('ResizeObserver' in window) new ResizeObserver(size).observe(el);
+    if (still) {
+      step(0, true);
+      return;
+    }
+    if (fine) {
+      addEventListener('pointermove', (e) => {
+        const b = el.getBoundingClientRect();
+        mx = e.clientX - b.left;
+        my = e.clientY - b.top;
+        near = mx > -60 && my > -60 && mx < b.width + 60 && my < b.height + 60;
+      }, { passive: true });
+    }
+    const loop = (time) => {
+      frame = 0;
+      if (!visible) return;
+      step(time, false);
+      frame = requestAnimationFrame(loop);
+    };
+    new IntersectionObserver((entries) => {
+      visible = entries[0].isIntersecting;
+      if (visible && !frame) frame = requestAnimationFrame(loop);
+    }).observe(el);
+  }
+
+  function liquidGlass() {
+    const panes = all('[data-glass]');
+    if (!panes.length) return;
+    if (fine && /Chrome\//.test(navigator.userAgent) && !d.getElementById('lg-refract')) {
+      const ns = 'http://www.w3.org/2000/svg';
+      const svg = d.createElementNS(ns, 'svg');
+      svg.setAttribute('width', '0');
+      svg.setAttribute('height', '0');
+      svg.setAttribute('aria-hidden', 'true');
+      svg.style.position = 'absolute';
+      const filter = d.createElementNS(ns, 'filter');
+      filter.id = 'lg-refract';
+      filter.setAttribute('color-interpolation-filters', 'sRGB');
+      const noise = d.createElementNS(ns, 'feTurbulence');
+      noise.setAttribute('type', 'fractalNoise');
+      noise.setAttribute('baseFrequency', '0.006 0.009');
+      noise.setAttribute('numOctaves', '2');
+      noise.setAttribute('seed', '7');
+      noise.setAttribute('result', 'noise');
+      const soft = d.createElementNS(ns, 'feGaussianBlur');
+      soft.setAttribute('in', 'noise');
+      soft.setAttribute('stdDeviation', '2');
+      soft.setAttribute('result', 'map');
+      const bend = d.createElementNS(ns, 'feDisplacementMap');
+      bend.setAttribute('in', 'SourceGraphic');
+      bend.setAttribute('in2', 'map');
+      bend.setAttribute('scale', '28');
+      bend.setAttribute('xChannelSelector', 'R');
+      bend.setAttribute('yChannelSelector', 'G');
+      filter.append(noise, soft, bend);
+      svg.append(filter);
+      d.body.append(svg);
+      root.classList.add('lg-ok');
+    }
+    if (!fine) return;
+    panes.forEach((el) => {
+      el.addEventListener('pointermove', (e) => {
+        const b = el.getBoundingClientRect();
+        el.style.setProperty('--gx', `${(((e.clientX - b.left) / b.width) * 100).toFixed(1)}%`);
+        el.style.setProperty('--gy', `${(((e.clientY - b.top) / b.height) * 100).toFixed(1)}%`);
+      });
+      el.addEventListener('pointerleave', () => {
+        el.style.removeProperty('--gx');
+        el.style.removeProperty('--gy');
+      });
+    });
+  }
+
+  function dock(el) {
+    if (!fine || still) return;
+    const items = Array.from(el.children);
+    el.addEventListener('pointermove', (e) => {
+      items.forEach((it) => {
+        const b = it.getBoundingClientRect();
+        const dist = Math.abs(e.clientX - (b.left + b.width / 2));
+        const reach = Math.max(80, b.width * 2.4);
+        const s = 1 + 0.5 * Math.max(0, Math.cos((Math.min(1, dist / reach) * Math.PI) / 2));
+        it.style.setProperty('--dock', s.toFixed(3));
+      });
+    });
+    el.addEventListener('pointerleave', () => items.forEach((it) => it.style.setProperty('--dock', '1')));
+  }
+
+  function highlightWords(el) {
+    const walker = d.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) if (walker.currentNode.nodeValue.trim()) nodes.push(walker.currentNode);
+    const words = [];
+    nodes.forEach((node) => {
+      const frag = d.createDocumentFragment();
+      node.nodeValue.split(/(\s+)/).forEach((part) => {
+        if (!part) return;
+        if (/^\s+$/.test(part)) return frag.append(part);
+        const span = d.createElement('span');
+        span.className = 'hw';
+        span.textContent = part;
+        words.push(span);
+        frag.append(span);
+      });
+      node.replaceWith(frag);
+    });
+    el.hwWords = words;
+    el.hwLit = -1;
+    if (still) words.forEach((x) => x.classList.add('lit'));
+  }
+
+  function stories(el) {
+    const slides = Array.from(el.children).filter((x) => x.hasAttribute('data-slide'));
+    if (slides.length < 2) {
+      if (slides[0]) slides[0].classList.add('on');
+      return;
+    }
+    const wait = Math.min(12000, Math.max(2500, parseInt(el.dataset.stories, 10) || 5000));
+    const bars = d.createElement('div');
+    bars.className = 'st-bars';
+    bars.setAttribute('aria-hidden', 'true');
+    const marks = slides.map(() => bars.appendChild(d.createElement('span')));
+    el.append(bars);
+    el.style.setProperty('--st-ms', `${wait}ms`);
+    const counter = el.querySelector('[data-story-count]');
+    const pad = (n) => String(n).padStart(2, '0');
+    let i = 0;
+    const show = (k) => {
+      i = (k + slides.length) % slides.length;
+      slides.forEach((x, j) => {
+        x.classList.toggle('on', j === i);
+        x.setAttribute('aria-hidden', String(j !== i));
+      });
+      marks.forEach((m, j) => {
+        m.classList.toggle('done', j < i);
+        m.classList.remove('run');
+      });
+      if (!still) {
+        void marks[i].offsetWidth;
+        marks[i].classList.add('run');
+      }
+      if (counter) counter.textContent = `${pad(i + 1)} / ${pad(slides.length)}`;
+    };
+    marks.forEach((m) => m.addEventListener('animationend', () => {
+      if (m.classList.contains('run')) show(i + 1);
+    }));
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('a, button')) return;
+      const b = el.getBoundingClientRect();
+      show(e.clientX - b.left < b.width / 3 ? i - 1 : i + 1);
+    });
+    if (!el.hasAttribute('tabindex')) el.tabIndex = 0;
+    if (!el.getAttribute('aria-label')) el.setAttribute('aria-label', 'Photo stories, use the arrow keys to move');
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight') show(i + 1);
+      if (e.key === 'ArrowLeft') show(i - 1);
+    });
+    const pause = (on) => el.classList.toggle('paused', on);
+    el.addEventListener('pointerenter', () => pause(true));
+    el.addEventListener('pointerleave', () => pause(false));
+    el.addEventListener('focusin', () => pause(true));
+    el.addEventListener('focusout', () => pause(false));
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver((entries) => el.classList.toggle('offscreen', !entries[0].isIntersecting)).observe(el);
+    }
+    show(0);
+  }
+
   function countUp(el) {
     const target = parseFloat(el.textContent);
     if (!(target > 0) || still) return;
@@ -213,7 +464,16 @@ function enhance() {
       revealables.forEach(show);
     }
 
-    all('[data-scene]').forEach(scene);
+    all('[data-scene]').forEach((el) => {
+      const kind = el.dataset.scene;
+      if (kind === 'swarm') swarm(el);
+      else scene(el);
+    });
+    all('[data-stories]').forEach(stories);
+    liquidGlass();
+    all('[data-dock]').forEach(dock);
+    const highlights = all('[data-highlight]');
+    highlights.forEach(highlightWords);
 
     all('[data-theme-toggle]').forEach((btn) => {
       const current = () => root.dataset.theme || getComputedStyle(root).getPropertyValue('--mode').trim() || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
@@ -318,6 +578,16 @@ function enhance() {
       const max = root.scrollHeight - innerHeight;
       root.style.setProperty('--scroll', max > 0 ? (scrollY / max).toFixed(4) : '0');
       if (nav) nav.classList.toggle('stuck', scrollY > 24);
+      if (!still) {
+        highlights.forEach((el) => {
+          const b = el.getBoundingClientRect();
+          const p = Math.min(1, Math.max(0, (innerHeight * 0.88 - b.top) / (b.height + innerHeight * 0.4)));
+          const count = Math.round(p * el.hwWords.length * 1.1);
+          if (count === el.hwLit) return;
+          el.hwLit = count;
+          el.hwWords.forEach((x, i) => x.classList.toggle('lit', i < count));
+        });
+      }
       progress.forEach((el) => {
         const b = el.getBoundingClientRect();
         const p = Math.min(1, Math.max(0, (innerHeight - b.top) / (innerHeight + b.height)));
@@ -385,18 +655,34 @@ function enhance() {
       let cx = -100;
       let cy = -100;
       let moving = false;
+      let stick = null;
       const place = () => {
-        cx += (x - cx) * 0.22;
-        cy += (y - cy) * 0.22;
+        let tx = x;
+        let ty = y;
+        if (stick) {
+          const b = stick.getBoundingClientRect();
+          tx += (b.left + b.width / 2 - x) * 0.45;
+          ty += (b.top + b.height / 2 - y) * 0.45;
+        }
+        cx += (tx - cx) * 0.2;
+        cy += (ty - cy) * 0.2;
         cursor.style.transform = `translate3d(${cx.toFixed(1)}px, ${cy.toFixed(1)}px, 0) translate(-50%, -50%)`;
-        moving = Math.abs(x - cx) > 0.3 || Math.abs(y - cy) > 0.3;
+        moving = Math.abs(tx - cx) > 0.3 || Math.abs(ty - cy) > 0.3;
         if (moving) requestAnimationFrame(place);
       };
       addEventListener('pointermove', (e) => {
         x = e.clientX;
         y = e.clientY;
         const labelled = e.target.closest && e.target.closest('[data-cursor-label]');
-        cursor.classList.toggle('hover', Boolean(e.target.closest && e.target.closest('a, button')));
+        const hit = e.target.closest ? e.target.closest('[data-magnetic], a, button') : null;
+        const b = hit ? hit.getBoundingClientRect() : null;
+        stick = hit && b.width < 360 && b.height < 140 ? hit : null;
+        cursor.classList.toggle('hover', Boolean(hit));
+        cursor.classList.toggle('stick', Boolean(stick));
+        if (stick) {
+          cursor.style.setProperty('--cw', `${Math.round(b.width + 14)}px`);
+          cursor.style.setProperty('--ch', `${Math.round(b.height + 14)}px`);
+        }
         cursor.classList.toggle('label', Boolean(labelled));
         cursor.setAttribute('data-label', labelled ? labelled.getAttribute('data-cursor-label').slice(0, 14) : '');
         if (!moving) {

@@ -61,8 +61,39 @@ function openaiRequest(prompt, shape, quality) {
   });
 }
 
-async function viaOpenAI(prompt, shape) {
+const REFERENCE_NOTE =
+  " Reference photos of the owner's real business are attached: match its architecture, materials, colours, decor, light and atmosphere so this picture feels like the same place, seen from a new angle or at a new moment. Never copy a reference exactly, and never invent signage or text.";
+
+function openaiEdit(prompt, shape, quality, refs) {
+  const form = new FormData();
+  form.append('model', config.images.openaiModel);
+  form.append('prompt', full(`${prompt}${REFERENCE_NOTE}`));
+  form.append('size', shape.openai);
+  form.append('quality', quality);
+  form.append('n', '1');
+  refs.forEach((buf, i) => form.append('image[]', new Blob([buf], { type: 'image/jpeg' }), `reference-${i + 1}.jpg`));
+  return fetch('https://api.openai.com/v1/images/edits', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${config.images.openaiKey}` },
+    body: form,
+    signal: AbortSignal.timeout(240000),
+  });
+}
+
+async function viaOpenAI(prompt, shape, refs = []) {
   if (!(await openaiReady())) throw new ProviderError(`OpenAI image model ${config.images.openaiModel} is not available to this key`, 403);
+  if (refs.length) {
+    const res = await openaiEdit(prompt, shape, config.images.openaiQuality, refs);
+    if (res.ok) {
+      const b64 = (await res.json())?.data?.[0]?.b64_json;
+      if (b64) {
+        log.info('ai image made from owner references', { references: refs.length });
+        return Buffer.from(b64, 'base64');
+      }
+    } else {
+      log.warn('openai reference image failed, drawing without references', { status: res.status, error: (await res.text()).slice(0, 160) });
+    }
+  }
   let res = await openaiRequest(prompt, shape, config.images.openaiQuality);
   if (res.status === 400 && config.images.openaiQuality !== 'high') {
     log.warn('openai image quality not accepted, using high', { quality: config.images.openaiQuality, error: (await res.text()).slice(0, 160) });
@@ -177,12 +208,12 @@ export async function cropTo(buffer, shape) {
     .toBuffer();
 }
 
-async function generate(prompt, shape) {
+async function generate(prompt, shape, refs = []) {
   let lastError = null;
   for (const [name, run] of providers()) {
     if ((pausedUntil.get(name) || 0) > Date.now()) continue;
     try {
-      const buffer = await cropTo(await run(prompt, shape), shape);
+      const buffer = await cropTo(await run(prompt, shape, refs), shape);
       log.info('ai image made', { provider: name });
       buffer.provider = name;
       return buffer;
@@ -205,8 +236,24 @@ export function fallbackPrompts(site) {
   ];
 }
 
-export function aiImageBuffer(prompt, slot) {
-  return generate(prompt, shapeOf(slot));
+export function aiImageBuffer(prompt, slot, refs = []) {
+  return generate(prompt, shapeOf(slot), refs);
+}
+
+export async function referenceBuffers(photos = [], max = 3) {
+  const own = photos.filter((p) => !p.ai && p.lg && (!p.asset || p.asset.usable)).slice(0, max);
+  const loaded = await Promise.all(
+    own.map(async (p) => {
+      try {
+        const res = await fetch(p.lg, { signal: AbortSignal.timeout(20000) });
+        if (!res.ok) return null;
+        return await sharp(Buffer.from(await res.arrayBuffer())).resize({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer();
+      } catch {
+        return null;
+      }
+    })
+  );
+  return loaded.filter(Boolean);
 }
 
 export const paidImages = () => Boolean(config.images.openaiKey);

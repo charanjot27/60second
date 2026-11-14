@@ -79,6 +79,18 @@ love` or a screenshot with the caption `inspire`; Gemini distils it into concret
 standards (layout, type, colour, imagery, motion, footer, signature technique) that every art direction,
 page build and review must reach or beat. `inspirations` lists them and `remove inspiration 2` drops one.
 
+Pages stay light and calm: one signature interaction, at most one canvas scene and one small animated
+SVG motif of what the business does (a truck rolling along a road for a mover, a mower leaving a stripe for a
+gardener), no 3D libraries. The trusted script adds the rest through hooks: a story-style photo viewer with
+progress bars (`data-stories`), macOS-style Liquid Glass (`data-glass`), Dock magnification (`data-dock`),
+words that light up while scrolling (`data-highlight`), a magnetic particle swarm (`data-scene="swarm"`) and a
+cursor that snaps to buttons.
+
+The owner's own words matter beyond name, location and services: every other concrete detail they say or type
+(speciality, story, who they serve, how they work, stated hours or prices) is kept as `details`, shown back for
+confirmation and used for the copy and sections. When owners send photos, GPT receives them as references, so
+new pictures show the same place, for example more views of the same hotel.
+
 Every page ends with a designed footer: a large typographic sign-off, the main action, an index of the
 sections, services, contact details, back to top and the copyright, on its own surface for light and dark
 mode. The enquiry form and videos are placed right before it and a slim credit line after it.
