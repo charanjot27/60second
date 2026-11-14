@@ -111,10 +111,13 @@ function fakeCollection() {
       if (i >= 0) docs.splice(i, 1);
     },
     aggregate: () => ({ toArray: async () => [] }),
+    async countDocuments(q) {
+      return docs.filter((d) => matches(d, q)).length;
+    },
   };
 }
 
-for (const name of ['sites', 'sessions', 'processed', 'usage', 'events', 'leads', 'designs', 'payments', 'lessons', 'inspirations']) {
+for (const name of ['sites', 'sessions', 'processed', 'usage', 'events', 'leads', 'designs', 'payments', 'lessons', 'inspirations', 'knowledge', 'knowledgeSources']) {
   Object.assign(db[name], fakeCollection());
 }
 
@@ -1899,5 +1902,100 @@ test('owner photos are sent to GPT as references so new pictures match the real 
   } finally {
     net.restore();
     restore();
+  }
+});
+
+test('design references are read, chunked and embedded, and robots.txt is respected', async () => {
+  const { htmlToText, chunkText, robotsAllows } = await import('../src/knowledge.js');
+  const page = htmlToText('<html><title>Typography &amp; Type</title><nav>Menu stuff</nav><main><h2>Line length</h2><p>Keep lines between 45 and 90 characters.</p><a href="/b#x">B</a></main><script>evil()</script></html>', 'https://ex.com/a');
+  assert.equal(page.title, 'Typography & Type');
+  assert.match(page.text, /^## Line length\n+Keep lines/);
+  assert.ok(!page.text.includes('evil') && !page.text.includes('Menu stuff'));
+  assert.deepEqual(page.links, ['https://ex.com/b']);
+  const long = Array.from({ length: 40 }, (_, i) => `Paragraph ${i} explains why generous whitespace, clear hierarchy and consistent spacing make interfaces easier to scan for every visitor on every screen size.`).join('\n\n');
+  const chunks = chunkText(`# Spacing\n\n${long}`);
+  assert.ok(chunks.length > 3 && chunks.every((c) => c.length <= 1400));
+  assert.ok(chunks[1].startsWith('# Spacing'));
+  assert.ok(!chunkText('Home\n\nAbout\n\nBlog').length);
+  assert.equal(robotsAllows('User-agent: *\nDisallow: /private\nAllow: /private/ok', '/private/x'), false);
+  assert.equal(robotsAllows('User-agent: *\nDisallow: /private\nAllow: /private/ok', '/private/ok/1'), true);
+  assert.equal(robotsAllows('User-agent: Googlebot\nDisallow: /', '/a'), true);
+});
+
+test('the design library is retrieved for each website and reaches the designer prompt', async () => {
+  const kn = await import('../src/knowledge.js');
+  const { generateSitePage } = await import('../src/generate.js');
+  const restore = withConfig({ gemini: { apiKey: 'g-key' } });
+  const para = (topic, n) => Array.from({ length: 6 }, (_, i) => `<p>${topic} guidance ${n}.${i}: designers should choose ${topic} deliberately, test it with real visitors on phones and desktops, and keep it consistent across every section of the page.</p>`).join('');
+  const pages = {
+    'https://typo.example/': `<title>Type guide</title><main><h1>Typography</h1>${para('typography', 1)}<a href="https://typo.example/pairing">Pairing</a><a href="https://other.example/x">Away</a><a href="https://typo.example/secret/1">Secret</a></main>`,
+    'https://typo.example/pairing': `<title>Font pairing</title><main><h1>Pairing</h1>${para('typography pairing', 2)}</main>`,
+    'https://a11y.example/': `<title>Contrast</title><main><h1>Contrast</h1>${para('contrast', 3)}</main>`,
+  };
+  const vec = (text) => {
+    const t = text.toLowerCase();
+    return [t.includes('typograph') ? 1 : 0, t.includes('contrast') ? 1 : 0, 0.05];
+  };
+  let pagePrompt = '';
+  const net = mockFetch([
+    ['robots.txt', () => 'User-agent: *\nDisallow: /secret'],
+    ['batchEmbedContents', (u, init) => ({ embeddings: JSON.parse(init.body).requests.map((r) => ({ values: vec(r.content.parts[0].text) })) })],
+    ['api.anthropic.com', (u, init) => {
+      pagePrompt = JSON.parse(init.body).messages[0].content;
+      return {};
+    }],
+  ]);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    if (pages[u]) return new Response(pages[u], { status: 200, headers: { 'content-type': 'text/html' } });
+    if (u.includes('robots.txt')) return new Response('User-agent: *\nDisallow: /secret', { status: 200 });
+    return realFetch(url, init);
+  };
+  try {
+    await kn.addSource('https://typo.example/');
+    const r = await kn.ingestSource('https://typo.example/', { maxPages: 5 });
+    assert.equal(r.pages, 2);
+    assert.ok(r.total >= 2);
+    assert.ok(!net.calls.some((c) => c.url.includes('/secret')));
+    await kn.ingestSource('https://a11y.example/', { maxPages: 1 });
+    const again = await kn.ingestSource('https://typo.example/', { maxPages: 5 });
+    assert.equal(again.added, 0);
+    const hits = await kn.retrieve(['contrast of text'], { k: 2 });
+    assert.equal(hits[0].source, 'https://a11y.example/');
+    const memory = { knowledge: await kn.designKnowledge({ category: 'Bakery', services: ['Cakes'] }, 'Bakery') };
+    assert.ok(memory.knowledge.page.length);
+    await generateSitePage({ businessName: 'Bakery', services: [] }, null, null, memory).catch(() => null);
+    assert.match(pagePrompt, /DESIGN KNOWLEDGE/);
+    assert.match(pagePrompt, /guidance/);
+    const status = await kn.knowledgeStatus();
+    assert.ok(status.chunks >= 3);
+    assert.equal(await kn.forgetSource('https://a11y.example/') > 0, true);
+  } finally {
+    globalThis.fetch = realFetch;
+    net.restore();
+    restore();
+  }
+});
+
+test('the admin teaches the design library on WhatsApp with links, notes and status', async () => {
+  const { handleMessage } = await import('../src/bot.js');
+  const admin = '919000000099';
+  config.adminNumbers.push(admin);
+  const restore = withConfig({ gemini: { apiKey: 'g-key' } });
+  const net = mockFetch([['batchEmbedContents', (u, init) => ({ embeddings: JSON.parse(init.body).requests.map(() => ({ values: [0.3, 0.4, 0.5] })) })]]);
+  const say = (text) => handleMessage({ id: crypto.randomUUID(), from: admin, name: 'A', type: 'text', text });
+  try {
+    const notes = Array.from({ length: 8 }, (_, i) => `Rule ${i}: every website for a local business should show the main call to action in the first screen, repeat it after the services, and keep the contact details easy to find on phones.`).join('\n\n');
+    await say(`learn ${notes}`);
+    assert.ok(said(net.calls, 'Learned'));
+    await say('knowledge');
+    assert.ok(said(net.calls, 'Design library'));
+    await say('knowledge search call to action');
+    assert.ok(said(net.calls, 'call to action'));
+  } finally {
+    net.restore();
+    restore();
+    config.adminNumbers.pop();
   }
 });

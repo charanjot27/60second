@@ -14,6 +14,8 @@ export const designs = db.collection('designs');
 export const payments = db.collection('payments');
 export const lessons = db.collection('lessons');
 export const inspirations = db.collection('inspirations');
+export const knowledge = db.collection('knowledge');
+export const knowledgeSources = db.collection('knowledge_sources');
 
 export async function connect() {
   await client.connect();
@@ -30,6 +32,9 @@ export async function connect() {
     payments.createIndex({ slug: 1, at: -1 }),
     lessons.createIndex({ at: -1 }),
     inspirations.createIndex({ at: -1 }),
+    knowledge.createIndex({ hash: 1 }, { unique: true }),
+    knowledge.createIndex({ source: 1 }),
+    knowledgeSources.createIndex({ url: 1 }, { unique: true }),
     sites.createIndex({ 'domain.expiresAt': 1 }, { sparse: true }),
     sites.createIndex({ 'billing.subscriptionId': 1 }, { sparse: true }),
     leads.createIndex({ slug: 1, at: -1 }),

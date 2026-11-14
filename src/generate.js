@@ -6,6 +6,7 @@ import { callClaudeRaw, claudeEnabled } from './claude.js';
 import { escapeHtml } from './render.js';
 import { memoryNote, referenceNote } from './memory.js';
 import { inspirationNote } from './inspirations.js';
+import { knowledgeNote } from './knowledge.js';
 import { pickSeed, briefIssues, SCRIPT_FONTS, supportsScript } from './designrules.js';
 import { classifyIndustry, industryBrief, industryAction } from './industry.js';
 import { arrangeOwnPhotos, assetSummary } from './assets.js';
@@ -796,7 +797,7 @@ export async function createArtDirection(site, memory = null, meter = null) {
   const base =
     `Business facts:\n${JSON.stringify(facts(site), null, 2)}\n\n${industryBrief(industry)}\n\n${seedText(seed)}` +
     (note ? `\n\nRECENTLY USED DESIGNS (do not resemble any of these in palette, fonts or layout):\n${note}` : '') +
-    libraryNote(memory);
+    libraryNote(memory, 'art');
   for (const provider of providers()) {
     try {
       let brief = null;
@@ -820,8 +821,8 @@ export async function createArtDirection(site, memory = null, meter = null) {
   return null;
 }
 
-function libraryNote(memory) {
-  const parts = [inspirationNote(memory?.inspirations), referenceNote(memory)].filter(Boolean);
+function libraryNote(memory, stage = 'page') {
+  const parts = [inspirationNote(memory?.inspirations), referenceNote(memory), knowledgeNote(memory?.knowledge?.[stage])].filter(Boolean);
   return parts.length ? `\n\n${parts.join('\n\n')}` : '';
 }
 

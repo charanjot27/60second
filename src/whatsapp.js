@@ -49,6 +49,9 @@ export function parseIncoming(body) {
             } else if (String(m.document?.mime_type || '').startsWith('video/')) {
               msg.type = 'video';
               msg.mediaId = m.document.id;
+            } else if (m.document?.mime_type === 'application/pdf') {
+              msg.mediaId = m.document.id;
+              msg.filename = String(m.document.filename || '').slice(0, 120);
             }
             msg.text = m.document?.caption || '';
             break;

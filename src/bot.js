@@ -19,6 +19,7 @@ import { createArtDirection, generateSitePage, editSite } from './generate.js';
 import { designMemory, recordDesign, markOutcome, markFeedback, noteRevision } from './memory.js';
 import { currentLessons } from './lessons.js';
 import { addInspiration, listInspirations, removeInspiration } from './inspirations.js';
+import { designKnowledge, addSource, ingestSource, ingestText, ingestPdf, forgetSource, relearnAll, knowledgeStatus, knowledgeEnabled, retrieve } from './knowledge.js';
 import sharp from 'sharp';
 import { transcribe } from './voice.js';
 import {
@@ -67,6 +68,9 @@ const CANCEL = new Set(['cancel', 'cancel plan', 'cancel my plan', 'cancel subsc
 const LANG_WORDS = { english: 'en', hindi: 'hi', 'हिंदी': 'hi', punjabi: 'pa', 'ਪੰਜਾਬੀ': 'pa' };
 const HISTORY = 5;
 const INSPIRE = /^(?:inspire|inspiration)\b/;
+const LEARN = /^learn\b/;
+const FORGET = /^forget\s+(\S+)$/;
+const KNOWLEDGE_SEARCH = /^knowledge\s+(?:search|find|ask)\s+(.{3,})$/;
 const REMOVE_INSPIRATION = /^(?:remove|delete) inspiration (\d{1,2})$/;
 const DONE = new Set(['done', 'photos_done', 'skip', 'skip_photos', 'finish', 'no_photos']);
 const DROP_SESSION = Symbol('drop');
@@ -93,6 +97,8 @@ export async function handleMessage(msg) {
     result = await modelCheck(s);
   } else if (cmd === 'lessons' && isAdmin) {
     result = await showLessons(s);
+  } else if (isAdmin && (LEARN.test(cmd) || cmd === 'knowledge' || cmd === 'relearn' || FORGET.test(cmd) || KNOWLEDGE_SEARCH.test(cmd) || (msg.type === 'document' && LEARN.test(cmd || 'learn')))) {
+    result = await knowledgeCommand(s, msg, text, cmd);
   } else if (isAdmin && (INSPIRE.test(cmd) || cmd === 'inspirations' || REMOVE_INSPIRATION.test(cmd))) {
     result = await inspirationCommand(s, msg, text, cmd);
   } else if (isAdmin && ADMIN_CMD.test(cmd)) {
@@ -155,6 +161,61 @@ async function adminCommand(s, cmd) {
   const state = accessState(site);
   const left = site.trialEndsAt ? ` · trial ends ${new Date(site.trialEndsAt).toISOString().slice(0, 16).replace('T', ' ')} UTC` : '';
   return sendText(s._id, `${slug}: ${state} · plan ${site.plan || 'free'}${left}\n${url}`);
+}
+
+async function knowledgeCommand(s, msg, text, cmd) {
+  if (!knowledgeEnabled()) return sendText(s._id, '❌ The design library needs GEMINI_API_KEY for its search index.');
+  if (cmd === 'knowledge') {
+    const st = await knowledgeStatus();
+    const failed = st.failed.slice(0, 8).map((f) => `• ${f.url.replace(/^https?:\/\//, '')}: ${f.error || 'no readable text'}`).join('\n');
+    return sendText(
+      s._id,
+      `📚 Design library\n\n✅ Ready: ${st.ready} sources\n⏳ Waiting or reading: ${st.pending}${st.running ? ' (reading now)' : ''}\n❌ Could not read: ${st.failed.length}\n🧩 Knowledge pieces: ${st.chunks}` +
+        (failed ? `\n\nCould not read:\n${failed}` : '') +
+        '\n\nSend *learn https://site.com*, a PDF with the caption *learn*, or *learn* followed by your own notes. *knowledge search hero layout* shows what the designer would read. *forget https://site.com* removes one, *relearn* refreshes all.'
+    );
+  }
+  if (cmd === 'relearn') {
+    const n = await relearnAll();
+    return sendText(s._id, `🔄 Refreshing ${n} sources in the background. Send *knowledge* later to see progress.`);
+  }
+  const forget = text.trim().match(/^forget\s+(\S+)$/i);
+  if (forget) {
+    const removed = await forgetSource(forget[1]);
+    return sendText(s._id, removed ? `🗑 Removed ${removed} pieces from ${forget[1]}.` : `Nothing stored for ${forget[1]}.`);
+  }
+  const search = text.trim().match(/^knowledge\s+(?:search|find|ask)\s+(.{3,})$/i);
+  if (search) {
+    const hits = await retrieve([search[1]], { k: 4, perSource: 1, minScore: 0 });
+    if (!hits.length) return sendText(s._id, 'Nothing in the library yet. Send *knowledge* to see its status.');
+    return sendText(s._id, `🔎 ${search[1]}\n\n` + hits.map((h, i) => `${i + 1}. *${h.title || h.source}* (${h.score})\n${h.url}\n_${h.text.replace(/\s+/g, ' ').slice(0, 220)}…_`).join('\n\n'));
+  }
+  if (msg.type === 'document' && msg.mediaId) {
+    await sendText(s._id, '📖 Reading the PDF...');
+    try {
+      const { buffer } = await downloadMedia(msg.mediaId);
+      const r = await ingestPdf(buffer, msg.filename || 'document.pdf');
+      return sendText(s._id, `✅ Learned ${r.total} pieces from ${msg.filename || 'the PDF'}. The designer will use them from the next website.`);
+    } catch (err) {
+      return sendText(s._id, `❌ I couldn't read that PDF (${err.message}).`);
+    }
+  }
+  const rest = text.replace(/^\s*learn\s*:?\s*/i, '').trim();
+  const url = rest.match(/^https?:\/\/\S+$/i)?.[0];
+  if (url) {
+    await addSource(url);
+    await sendText(s._id, `📖 Reading ${url} and up to a few linked pages. I'll tell you when it's done.`);
+    ingestSource(url)
+      .then((r) => sendText(s._id, r.total ? `✅ Learned ${r.total} pieces from ${url} (${r.pages} pages).` : `❌ I couldn't read ${url}: ${r.error}. Try sending it as a PDF or pasting the text after *learn*.`))
+      .catch((err) => sendText(s._id, `❌ I couldn't read ${url}: ${err.message}`))
+      .catch(() => {});
+    return null;
+  }
+  if (rest.length >= 200) {
+    const r = await ingestText({ title: rest.split('\n')[0].slice(0, 80), text: rest });
+    return sendText(s._id, r.total ? `✅ Learned ${r.total} pieces from your notes.` : 'That text was too short to learn from. Send a longer note.');
+  }
+  return sendText(s._id, 'Send *learn https://site.com*, a PDF with the caption *learn*, or *learn* followed by at least a paragraph of notes. Send *knowledge* for the library status.');
 }
 
 async function inspirationCommand(s, msg, text, cmd) {
@@ -933,7 +994,9 @@ async function designSite(site, ownerPhone) {
 async function buildDesign(site, ownerPhone) {
   const design = makeDesign(site, String(Date.now()));
   const industry = classifyIndustry(site);
-  const memory = await designMemory(site.category, industry.id, site).catch(() => null);
+  const [found, knowledge] = await Promise.all([designMemory(site.category, industry.id, site).catch(() => null), designKnowledge(site, industry.name)]);
+  const memory = found || {};
+  memory.knowledge = knowledge;
   site.photos = await inspectPhotos(site.photos, { name: site.businessName, category: site.category, city: site.city, services: site.services });
   const meter = createMeter();
   const brief = await createArtDirection(site, memory, meter);

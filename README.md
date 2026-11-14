@@ -74,6 +74,19 @@ earlier canteens and dhabas), weighted up when owners liked or paid for them and
 many changes; their outlines reach the art direction, the page build and the review as a reference library
 to learn from, never to copy. Without the embedding model it falls back to word overlap.
 
+A design library (RAG) gives the designer real design knowledge. About forty respected references (Nielsen
+Norman Group, Laws of UX, Refactoring UI, WCAG 2.2, Practical Typography, Apple HIG, design systems, web.dev,
+CSS and motion guides, accessibility and open-source design resources; see `src/knowledge-sources.js`) are
+read in the background, respecting robots.txt, up to `KNOWLEDGE_PAGES_PER_SOURCE` pages each (GitHub repositories
+through their README, Apple's guidelines through their structured data, PDFs through a PDF reader). The text is
+split into overlapping pieces, embedded with Gemini and stored in MongoDB. For every website the closest pieces
+are retrieved for two tasks: brand and visual design for the art direction, and layout, accessibility, motion,
+contact, footer and performance for the page build and review, at most two pieces per source so one site never
+dominates. Admins manage it on WhatsApp: `learn https://site.com`, a PDF with the caption `learn`, `learn`
+followed by their own notes, `knowledge` for the status, `knowledge search hero layout` to see what the designer
+would read, `forget https://site.com` and `relearn`. Sites that render only with JavaScript or block automatic
+readers give little text; send those as PDFs or notes instead.
+
 The studio standard comes from websites the admin likes. An admin sends `inspire https://site.com what I
 love` or a screenshot with the caption `inspire`; Gemini distils it into concrete, transferable design
 standards (layout, type, colour, imagery, motion, footer, signature technique) that every art direction,
@@ -208,6 +221,8 @@ src/
 ├── spend.js       Per-site Claude and picture budget meter
 ├── memory.js      Design records, retrieval of similar earlier sites, feedback from owners
 ├── inspirations.js Admin-chosen inspiration sites distilled into the studio design standard
+├── knowledge.js   Design library (RAG): reading, chunking, embedding and retrieving design references
+├── knowledge-sources.js The default reference list
 ├── lessons.js     Daily design lessons distilled from owner feedback
 ├── assistant.js   Small-model router for chat, questions and photo review
 ├── designrules.js Design seeds and the hard design rules
@@ -259,7 +274,8 @@ test/
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Photo uploads |
 | `IMAGE_PUBLIC_BASE` | Photo URLs on sites |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | Google Gemini: fallback copywriter and designer |
-| `GEMINI_EMBED_MODEL` | Embedding model for finding similar earlier websites (default `gemini-embedding-001`) |
+| `GEMINI_EMBED_MODEL` | Embedding model for similar earlier websites and the design library (default `gemini-embedding-001`) |
+| `KNOWLEDGE_PAGES_PER_SOURCE`, `KNOWLEDGE_AUTO_READ` | Pages read per design reference (default 10); set `false` to stop background reading |
 | `OPENAI_API_KEY`, `OPENAI_IMAGE_MODEL` | Optional, best-quality AI pictures |
 | `GEMINI_IMAGE_MODEL` | Gemini picture model, used when the Gemini key allows it |
 | `CF_ACCOUNT_ID`, `CF_AI_TOKEN`, `CF_IMAGE_MODEL` | Optional Cloudflare Workers AI pictures |

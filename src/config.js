@@ -37,6 +37,10 @@ export const config = {
     designModel: env.GEMINI_DESIGN_MODEL || 'gemini-3-flash-preview',
     embedModel: env.GEMINI_EMBED_MODEL || 'gemini-embedding-001',
   },
+  knowledge: {
+    pagesPerSource: Math.max(1, Number(env.KNOWLEDGE_PAGES_PER_SOURCE) || 10),
+    autoRead: env.KNOWLEDGE_AUTO_READ !== 'false',
+  },
   mongo: {
     url: env.MONGO_URL || 'mongodb://127.0.0.1:27017',
     db: env.MONGO_DB || 'site60',

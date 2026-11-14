@@ -28,6 +28,7 @@ import { domainShopEnabled, quoteRenewal, sweepDomainRenewals, sweepOwnedDomains
 import { distillLessons } from './lessons.js';
 import { verifyRazorpayWebhook, verifyLinkCallback, verifySubscriptionCallback } from './razorpay.js';
 import { sweepDomains } from './domains.js';
+import { processPending } from './knowledge.js';
 import { handleLead, handleTap } from './leads.js';
 import { adminPage, adminCsv } from './admin.js';
 import { renderMessage, renderPayPage } from './render.js';
@@ -268,6 +269,7 @@ async function sweep() {
   await sweepOwnedDomains().catch((err) => log.error('owned domain sweep failed', err));
   await distillLessons().catch((err) => log.warn('lesson update failed', { error: err.message }));
   await sweepDomains().catch((err) => log.error('domain sweep failed', err));
+  if (config.knowledge.autoRead) processPending().catch((err) => log.warn('knowledge reading failed', { error: err.message }));
 }
 
 await connect();
