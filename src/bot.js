@@ -52,7 +52,7 @@ const ROOT = config.rootDomain;
 const MAX_PHOTOS = config.limits.maxPhotos;
 const MAX_VIDEOS = config.limits.maxVideos;
 const RESTART = new Set(['restart', 'reset', 'start over', 'start again']);
-const NEW_SITE = new Set(['new website', 'new site', 'another website', 'another site', 'create new website', 'make new website', 'make a new website', 'new business', 'add business', 'add website']);
+const NEW_SITE = new Set(['new_site', 'new website', 'new site', 'another website', 'another site', 'create new website', 'make new website', 'make a new website', 'new business', 'add business', 'add website']);
 const MY_SITES = new Set(['my websites', 'my sites', 'websites', 'sites', 'switch']);
 const SWITCH = /^(?:switch|open|use)\s+(?:to\s+)?([a-z0-9-]{3,30})$/;
 const DELETE = new Set(['delete', 'delete my site', 'delete site', 'delete website', 'delete my website']);
@@ -790,11 +790,6 @@ function normalizePhone(input, ownerPhone = '') {
 }
 
 async function startNewSite(s) {
-  const owned = await sites.find({ ownerPhone: s._id }).sort({ createdAt: -1 }).limit(20).toArray();
-  const allowed = isAdminPhone(s._id) || !owned.length || owned.every((x) => x.plan === 'paid' && accessState(x) === 'live');
-  if (!allowed) {
-    return sendText(s._id, `You can make another website once your current one is on a paid plan. Send *pay* to keep ${siteUrl(owned[0].slug)} online.`);
-  }
   clearMediaTimer(s._id);
   s.fresh = true;
   s.slug = null;
@@ -1499,7 +1494,7 @@ function liveMenu(s, site) {
     [
       { id: 'edit_about', title: 'Edit details' },
       { id: 'edit_photos', title: 'Change photos' },
-      { id: 'get_link', title: 'Get my link' },
+      { id: 'new_site', title: 'New website ➕' },
     ]
   );
 }

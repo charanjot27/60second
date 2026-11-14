@@ -1263,7 +1263,8 @@ test('an admin can start a new business website and switch between websites', as
 
     await db.sites.insertOne({ slug: 'trialshop', ownerPhone: owner, businessName: 'Trial', status: 'trial', plan: 'trial', trialEndsAt: new Date(Date.now() + 3600e3), createdAt: new Date() });
     await say(owner, 'new website');
-    assert.ok(sent.at(-1).includes('once your current one is on a paid plan'));
+    assert.ok(sent.at(-1).includes('mode_voice'));
+    assert.equal((await db.sessions.findOne({ _id: owner })).state, 'ASK_MODE');
   } finally {
     globalThis.fetch = realFetch;
     config.adminNumbers.pop();
