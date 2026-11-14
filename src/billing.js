@@ -20,6 +20,7 @@ const CANCELLED = new Set(['canceled', 'unpaid', 'incomplete_expired']);
 
 export function provider() {
   const wanted = config.billing.provider;
+  if (wanted === 'off' || wanted === 'none') return null;
   if (wanted === 'razorpay' && razorpayEnabled()) return 'razorpay';
   if (wanted === 'stripe' && stripeEnabled()) return 'stripe';
   if (stripeEnabled()) return 'stripe';

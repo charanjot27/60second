@@ -40,7 +40,7 @@ import {
   payOnceLink,
   portalLink,
 } from './billing.js';
-import { domainsEnabled, normalizeDomain, connectDomain } from './domains.js';
+import { domainsEnabled, normalizeDomain, connectDomain, dnsInstructions, dnsValues } from './domains.js';
 import { domainShopEnabled, domainIdeasEnabled, findDomains, quoteDomain, domainPaid, domainPayLink, offerText, domainRows, priceText, buyLinks, isRegistered, offerDomains } from './domainshop.js';
 import { money } from './plans.js';
 import { t, detectLang } from './i18n.js';
@@ -621,6 +621,7 @@ const HANDLERS = {
     if (emailMatch) return applyEdit(s, { notifyEmail: emailMatch[1].toLowerCase() }, `📧 Enquiry alerts will also go to ${emailMatch[1]}`);
 
     if (cmd === 'leads' || cmd === 'enquiries') return showLeads(s, site);
+    if (cmd === 'dns' || cmd === 'dns records' || cmd === 'domain records') return showDns(s, site);
     if (/^rate_[135]$/.test(cmd)) {
       const stars = Number(cmd.slice(5));
       await markRating(site.slug, stars);
@@ -1419,7 +1420,8 @@ async function handleDomain(s, site, input) {
     );
   }
   try {
-    return sendText(s._id, await connectDomain(site, domain));
+    await sendText(s._id, await connectDomain(site, domain));
+    return sendDnsValues(s);
   } catch (err) {
     log.error('domain connect failed', err, { domain });
     return sendText(
@@ -1428,6 +1430,20 @@ async function handleDomain(s, site, input) {
         (isAdminPhone(s._id) ? `\n\n🛠 Admin: ${err.message.slice(0, 300)}` : '')
     );
   }
+}
+
+async function sendDnsValues(s) {
+  const [ip, host] = dnsValues();
+  await sendText(s._id, 'Copy these values (press and hold to copy):');
+  await sendText(s._id, ip);
+  return sendText(s._id, host);
+}
+
+async function showDns(s, site) {
+  const domain = site.pendingDomain?.name || site.customDomain || site.requestedDomain;
+  if (!domain) return sendText(s._id, 'No domain is connected yet. Send *connect domain yourname.com* when you have one.');
+  await sendText(s._id, dnsInstructions(domain));
+  return sendDnsValues(s);
 }
 
 async function showLeads(s, site) {

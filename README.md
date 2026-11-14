@@ -303,6 +303,7 @@ test/
 | `TRIALS=on` | Trials without payment (demo mode). Admins send `activate <site>`, `extend <site> <hours>`, `pause <site>` or `status <site>` on WhatsApp |
 | `RENDER_API_KEY` | Connecting owners' own domains |
 | `WA_LEAD_TEMPLATE`, `WA_ALERT_TEMPLATE` | Approved templates for alerts after the 24-hour window |
+| `PAYMENTS` | `stripe` (default when Stripe keys exist), `razorpay`, or `off` to pause payments without removing keys; with payments off and `TRIALS` unset, websites stay online |
 | `RESEND_API_KEY`, `ALERT_EMAIL_FROM` | Email delivery of website enquiries to the owner's email address |
 | `ADMIN_PASSWORD` | Admin dashboard at `/admin` |
 | `LIMIT_*` | Per-number daily limits |

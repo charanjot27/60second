@@ -99,6 +99,10 @@ export async function siteForRequest(req) {
   return found ? { ...found, slug: target.slug } : { site: null, html: null, slug: target.slug };
 }
 
+export function shieldEmails(html) {
+  return String(html).replace(/<body\b[^>]*>/i, (m) => `${m}<!--email_off-->`).replace(/<\/body>(?![\s\S]*<\/body>)/i, '<!--/email_off--></body>');
+}
+
 function send(res, status, html, cacheSeconds = 60) {
   res
     .status(status)
@@ -109,7 +113,7 @@ function send(res, status, html, cacheSeconds = 60) {
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'strict-origin-when-cross-origin',
     })
-    .send(html);
+    .send(shieldEmails(html));
 }
 
 export function isRootHost(host) {

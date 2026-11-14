@@ -1421,7 +1421,10 @@ test('by default owners buy the domain themselves and the bot connects it', asyn
     boughtIn = true;
     await say({ type: 'interactive', buttonId: 'bought:gillsweets.in', text: 'I bought it ✅' });
     assert.ok(net.calls.some((c) => c.url.includes('api.render.com') && c.body.includes('gillsweets.in')));
-    assert.ok(net.calls.at(-1).body.includes('216.24.57.1'));
+    const texts = net.calls.filter((c) => c.url.includes('graph.facebook.com')).map((c) => JSON.parse(c.body).text?.body || '');
+    assert.ok(texts.some((t) => t.includes('Type *A*') && t.includes('216.24.57.1')));
+    assert.equal(texts.at(-2), '216.24.57.1');
+    assert.ok(texts.at(-1).length > 3 && !texts.at(-1).includes(' '));
     assert.equal((await db.sites.findOne({ slug: 'gillsweets' })).pendingDomain.name, 'gillsweets.in');
   } finally {
     globalThis.fetch = realFetch;
@@ -2059,4 +2062,17 @@ test('ratings teach the designer a quality bar, and review edits and the form sl
   assert.equal((html.match(/id="enquiry"/g) || []).length, 1);
   assert.ok(html.indexOf('action="/lead"') < html.indexOf('<p>Bye</p>'));
   assert.ok(html.indexOf('Talk to us') < html.indexOf('action="/lead"'));
+});
+
+test('pages are shielded from Cloudflare email rewriting and payments can be switched off', async () => {
+  const { shieldEmails } = await import('../src/site.js');
+  const out = shieldEmails('<html><body class="x"><a href="mailto:a@b.co">a@b.co</a></body></html>');
+  assert.equal(out, '<html><body class="x"><!--email_off--><a href="mailto:a@b.co">a@b.co</a><!--/email_off--></body></html>');
+  const { billingEnabled } = await import('../src/billing.js');
+  const restore = withConfig({ billing: { provider: 'off' } });
+  try {
+    assert.equal(billingEnabled(), false);
+  } finally {
+    restore();
+  }
 });

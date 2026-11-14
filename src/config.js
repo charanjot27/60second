@@ -19,7 +19,7 @@ export const config = {
     token: env.WA_TOKEN || '',
     appSecret: env.WA_APP_SECRET || '',
     verifyToken: env.WA_VERIFY_TOKEN || '',
-    apiVersion: env.WA_API_VERSION || 'v21.0',
+    apiVersion: env.WA_API_VERSION || 'v23.0',
     leadTemplate: env.WA_LEAD_TEMPLATE || '',
     alertTemplate: env.WA_ALERT_TEMPLATE || '',
     templateLang: env.WA_TEMPLATE_LANG || 'en',

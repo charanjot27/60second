@@ -64,6 +64,10 @@ export function dnsInstructions(domain) {
   );
 }
 
+export function dnsValues() {
+  return [config.render.apexIp, config.render.hostname || 'your-service.onrender.com'];
+}
+
 export async function connectDomain(site, domain) {
   try {
     await render('POST', '/custom-domains', { name: domain });
