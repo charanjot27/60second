@@ -2,7 +2,7 @@ import { config, siteUrl, botLink } from './config.js';
 import { FONT_PAIRS, palette } from './design.js';
 import { SITE_SCRIPT, escapeHtml as e, formatPhone, faviconLink } from './render.js';
 import { ENHANCE_SCRIPT } from './enhance.js';
-import { extrasHtml, creditsHtml, EXTRAS_CSS } from './extras.js';
+import { extrasHtml, creditsHtml, enquiryForm, EXTRAS_CSS } from './extras.js';
 import { buildData, fillTemplate, sanitizeBody, pageCss } from './generate.js';
 import { arrangeOwnPhotos } from './assets.js';
 
@@ -165,6 +165,9 @@ function renderGenerated(site) {
   const focusCss = data.focus
     .map((f) => `img[src="${String(f.src).replace(/["\\\n<>]/g, '')}"]{object-position:${Number(f.x)}% ${Number(f.y)}%}`)
     .join('');
+  const slot = /<div\b([^>]*\bdata-enquiry\b[^>]*)>\s*<\/div>/i;
+  const formPlaced = slot.test(body);
+  const placed = formPlaced ? body.replace(slot, (_, attrs) => `<div${attrs.replace(/\sid="[^"]*"/i, '')} id="enquiry">${enquiryForm(site)}</div>`) : body;
   const designedFooter = /<footer\b/i.test(body);
   const barLabel = data.scalars.action.length <= 22 ? data.scalars.action : 'WhatsApp';
   const gallery = data.lists.photos;
@@ -210,7 +213,7 @@ ${page.fonts ? `<link rel="preconnect" href="https://fonts.googleapis.com"><link
 <style>${SHELL_CSS}${pageCss(page.css)}${focusCss}${EXTRAS_CSS}</style>
 </head>
 <body>
-${withExtras(body, extrasHtml(site, { gallery: needsGallery ? data.lists.photos : [] }))}
+${withExtras(placed, extrasHtml(site, { gallery: needsGallery ? data.lists.photos : [], withForm: !formPlaced }))}
 <footer class="sys-footer${designedFooter ? ' slim' : ''}">
 <p>Made on WhatsApp in 60 seconds with ${e(config.brand)}. <a href="${e(botLink(`Hi, I want a website like ${site.slug}`))}">Make yours</a></p>
 ${creditsHtml(site.aiImages)}

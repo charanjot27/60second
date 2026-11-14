@@ -505,9 +505,11 @@ test('demo mode: trials without payment, owner asks to keep it, admin extends an
     await say(owner, { type: 'button', buttonId: 'slug_ok' });
     const site = db.sites.docs.find((d) => d.ownerPhone === owner);
     assert.equal(site.status, 'trial');
-    assert.match(textTo(owner), /free for 24 hours/);
-    assert.match(textTo(owner), /keep it/);
-    assert.doesNotMatch(textTo(owner), /\/pay\//);
+    assert.equal(textTo(owner), 'How do you like your new website?');
+    const live = sent.filter((m) => m.to === owner).map((m) => m.text?.body || '').find((x) => x.includes('is live'));
+    assert.match(live, /free for 24 hours/);
+    assert.match(live, /keep it/);
+    assert.doesNotMatch(live, /\/pay\//);
 
     await say(owner, { text: 'keep it' });
     assert.match(textTo(owner), /Our team will contact you/);
@@ -1585,25 +1587,29 @@ test('Opus builds the page, a design director review polishes it, all inside the
   const restore = withConfig({ ai: { apiKey: 'test-anthropic' } });
   try {
     const meter = createMeter();
-    const reviewed = await run([fullPage('#111111'), fullPage('#222222')], meter);
-    assert.equal(reviewed.bodies.length, 2);
+    const edits = '@@ BODY\nFIND:\n<section id="about"></section>\nREPLACE:\n<section id="about"><h2>Our story</h2></section>\n@@ CSS\nFIND:\nmissing rule\nREPLACE:\nnothing\n@@ ADD CSS\n.story{color:#123}\n@@ END';
+    const reviewed = await run([fullPage('#111111'), edits, '===PASS==='], meter);
+    assert.equal(reviewed.bodies.length, 3);
     assert.ok(reviewed.bodies[0].max_tokens >= 90000);
     assert.equal(reviewed.bodies[0].output_config.effort, 'high');
     assert.match(JSON.stringify(reviewed.bodies[1].system), /design director/);
     assert.match(JSON.stringify(reviewed.bodies[1].messages), /Fraunces/);
-    assert.equal(reviewed.page.themeColor, '#222222');
+    assert.ok(reviewed.page.body.includes('<h2>Our story</h2>'));
+    assert.ok(reviewed.page.css.endsWith('.story{color:#123}'));
+    assert.ok(reviewed.bodies[1].max_tokens <= 32000);
+    assert.match(JSON.stringify(reviewed.bodies[2].messages), /Our story/);
     assert.equal(reviewed.page.qa.reviewed, true);
-    assert.deepEqual(meter.calls.map((c) => c.step), ['page build', 'design review']);
+    assert.deepEqual(meter.calls.map((c) => c.step), ['page build', 'design review 1', 'design review 2']);
     assert.ok(meter.claude > 0 && meter.claude < 0.01);
 
     const passed = await run([fullPage('#333333'), '===PASS===\nLooks great.'], createMeter());
     assert.equal(passed.page.themeColor, '#333333');
 
     const tight = createMeter();
-    tight.claudeLimit = 0.5;
+    tight.claudeLimit = 0.3;
     const cheap = await run([fullPage('#444444')], tight);
     assert.equal(cheap.bodies.length, 1);
-    assert.ok(cheap.bodies[0].max_tokens <= 22500);
+    assert.ok(cheap.bodies[0].max_tokens <= 12500);
     assert.equal(cheap.page.qa.reviewed, false);
 
     const empty = createMeter();
@@ -2024,4 +2030,32 @@ test('OpenAI embeddings power the design library and older Gemini pieces are re-
     net.restore();
     restore();
   }
+});
+
+test('ratings teach the designer a quality bar, and review edits and the form slot work', async () => {
+  const { markRating, designMemory, qualityNote } = await import('../src/memory.js');
+  const { applyEdits } = await import('../src/generate.js');
+  await db.designs.insertOne({ slug: 'boldcanteen', category: 'Canteen', concept: 'Retro poster bands', outline: [{ tag: 'section', id: 'cta', heading: 'Hot patties', parts: ['img'], hooks: [] }], at: new Date() });
+  await db.designs.insertOne({ slug: 'plainpest', category: 'Pest Control', concept: 'Quiet grid', outline: [{ tag: 'section', id: 'cta', heading: 'Your home', parts: [], hooks: [] }], at: new Date() });
+  await markRating('boldcanteen', 5, 'love the bold colour bands');
+  await markRating('plainpest', 2, 'too plain, text-only hero');
+  const memory = await designMemory('Salon', 'salon', { slug: 'newsalon', category: 'Salon' });
+  const note = qualityNote(memory);
+  assert.match(note, /QUALITY BAR[\s\S]*love the bold colour bands[\s\S]*Retro poster bands/);
+  assert.match(note, /RATED POORLY[\s\S]*too plain, text-only hero/);
+  assert.ok(!/Quiet grid/.test(note.split('RATED POORLY')[0]));
+
+  const out = applyEdits('a{color:red}\nb{color:blue}', '<h1>Hi</h1><p>x</p>', '@@ CSS\nFIND:\nb{color:blue}\nREPLACE:\nb{color:navy}\n@@ BODY\nFIND:\n<p>x</p>\nREPLACE:\n<p>y</p>\n@@ BODY\nFIND:\nnot there\nREPLACE:\nz\n@@ ADD CSS\n.new{}\n@@ END');
+  assert.equal(out.css, 'a{color:red}\nb{color:navy}\n.new{}');
+  assert.equal(out.body, '<h1>Hi</h1><p>y</p>');
+  assert.deepEqual([out.applied, out.missed], [3, 1]);
+
+  const { renderAdvanced } = await import('../src/advanced.js');
+  const html = renderAdvanced({
+    slug: 'slotted', businessName: 'Slotted', ownerPhone: '919000000001', style: 'advanced',
+    page: { css: 'a{}', body: '<section id="contact"><h2>Talk to us</h2><div data-enquiry></div></section><footer><p>Bye</p></footer>' },
+  });
+  assert.equal((html.match(/id="enquiry"/g) || []).length, 1);
+  assert.ok(html.indexOf('action="/lead"') < html.indexOf('<p>Bye</p>'));
+  assert.ok(html.indexOf('Talk to us') < html.indexOf('action="/lead"'));
 });

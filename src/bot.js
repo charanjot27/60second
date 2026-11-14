@@ -16,7 +16,7 @@ import { createMeter } from './spend.js';
 import { callClaudeRaw, claudeEnabled } from './claude.js';
 import { cheapEnabled, routeMessage } from './assistant.js';
 import { createArtDirection, generateSitePage, editSite } from './generate.js';
-import { designMemory, recordDesign, markOutcome, markFeedback, noteRevision } from './memory.js';
+import { designMemory, recordDesign, markOutcome, markFeedback, markRating, noteRevision } from './memory.js';
 import { currentLessons } from './lessons.js';
 import { addInspiration, listInspirations, removeInspiration } from './inspirations.js';
 import { designKnowledge, addSource, ingestSource, ingestText, ingestPdf, forgetSource, relearnAll, knowledgeStatus, knowledgeEnabled, retrieve } from './knowledge.js';
@@ -69,6 +69,7 @@ const LANG_WORDS = { english: 'en', hindi: 'hi', 'हिंदी': 'hi', punjab
 const HISTORY = 5;
 const INSPIRE = /^(?:inspire|inspiration)\b/;
 const LEARN = /^learn\b/;
+const RATE = /^rate\s+([a-z0-9-]{3,30})\s+([1-5])(?:\s+([\s\S]{1,300}))?$/i;
 const FORGET = /^forget\s+(\S+)$/;
 const KNOWLEDGE_SEARCH = /^knowledge\s+(?:search|find|ask)\s+(.{3,})$/;
 const REMOVE_INSPIRATION = /^(?:remove|delete) inspiration (\d{1,2})$/;
@@ -95,6 +96,10 @@ export async function handleMessage(msg) {
   const isAdmin = config.adminNumbers.includes(String(msg.from));
   if (cmd === 'model check' && isAdmin) {
     result = await modelCheck(s);
+  } else if (isAdmin && RATE.test(text.trim())) {
+    const [, slug, stars, note] = text.trim().match(RATE);
+    const saved = await markRating(slug.toLowerCase(), Number(stars), note || '');
+    result = await sendText(s._id, saved ? `⭐ Rated ${slug} ${stars}/5. New websites will ${Number(stars) >= 4 ? 'use it as a quality bar' : 'avoid its weaknesses'}.` : `No design record for ${slug}.`);
   } else if (cmd === 'lessons' && isAdmin) {
     result = await showLessons(s);
   } else if (isAdmin && (LEARN.test(cmd) || cmd === 'knowledge' || cmd === 'relearn' || FORGET.test(cmd) || KNOWLEDGE_SEARCH.test(cmd) || (msg.type === 'document' && LEARN.test(cmd || 'learn')))) {
@@ -616,6 +621,17 @@ const HANDLERS = {
     if (emailMatch) return applyEdit(s, { notifyEmail: emailMatch[1].toLowerCase() }, `📧 Enquiry alerts will also go to ${emailMatch[1]}`);
 
     if (cmd === 'leads' || cmd === 'enquiries') return showLeads(s, site);
+    if (/^rate_[135]$/.test(cmd)) {
+      const stars = Number(cmd.slice(5));
+      await markRating(site.slug, stars);
+      track(s._id, 'rated', { stars });
+      return sendText(
+        s._id,
+        stars >= 5
+          ? '❤️ Thank you! That helps me design even better websites.'
+          : '🙏 Thank you for telling me. What would you like to change? Type it or send a voice note, for example "make it more colourful" or "use my shop photo at the top", and I will update it.'
+      );
+    }
 
     if (cmd.startsWith('dom:')) return offerDomain(s, site, cmd.slice(4));
     if (cmd.startsWith('bought:')) return handleDomain(s, site, cmd.slice(7));
@@ -967,6 +983,11 @@ async function publish(s) {
         : '') +
       `✏️ Want changes? Just type or send a voice note, for example _"make the colours warmer"_. Send *undo* to go back or *new design* for a fresh look.`
   );
+  await sendButtons(s._id, 'How do you like your new website?', [
+    { id: 'rate_5', title: '❤️ Love it' },
+    { id: 'rate_3', title: "🙂 It's okay" },
+    { id: 'rate_1', title: '👎 Not good' },
+  ]).catch(() => {});
   if (trial && billingEnabled()) await sendPayButton(s._id, site);
   else if (domainIdeasEnabled() || domainShopEnabled()) {
     await sites.updateOne({ slug: site.slug }, { $set: { domainOffered: new Date() } });

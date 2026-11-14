@@ -129,6 +129,38 @@ export async function similarDesigns(site, industryId, k = 3) {
     .map(({ d, match }) => ({ ...d, match: Number(match.toFixed(2)) }));
 }
 
+const outlineLine = (d) =>
+  (d.outline || [])
+    .map((b) => `${b.tag}${b.id ? `#${b.id}` : ''}${b.heading ? ` "${b.heading}"` : ''}${b.parts?.length ? ` [${b.parts.join(' ')}]` : ''}${b.hooks?.length ? ` {${b.hooks.join(' ')}}` : ''}`)
+    .join(' → ');
+
+export function qualityNote(memory) {
+  const best = (memory?.best || []).filter((d) => d.outline?.length);
+  const worst = (memory?.worst || []).filter((d) => d.ratingNote || d.requests?.length);
+  if (!best.length && !worst.length) return '';
+  const lines = [];
+  if (best.length) {
+    lines.push(
+      'QUALITY BAR (earlier websites the owners or the studio rated highest, from any kind of business): match or beat their richness, composition and craft in this new design. Learn how they built their hero, their visual layers and their section rhythm; never copy their palette, fonts or wording.',
+      ...best.map((d, i) => `\nTop design ${i + 1}: ${d.category || 'business'} (rated ${d.rating || 5}/5${d.ratingNote ? `: "${d.ratingNote}"` : ''})\nConcept: ${d.concept || 'unknown'}\nSections: ${outlineLine(d)}`)
+    );
+  }
+  if (worst.length) {
+    lines.push('\nDESIGNS RATED POORLY (do not repeat these weaknesses):', ...worst.map((d) => `- ${d.category || 'business'}: ${d.ratingNote || (d.requests || []).slice(-3).join('; ')}`));
+  }
+  return lines.join('\n');
+}
+
+export async function markRating(slug, rating, note = '') {
+  const r = Math.max(1, Math.min(5, Math.round(Number(rating) || 0)));
+  const feedback = r >= 4 ? 'positive' : r <= 2 ? 'negative' : 'neutral';
+  return designs.findOneAndUpdate(
+    { slug },
+    { $set: { rating: r, ratingNote: String(note || '').slice(0, 300), feedback, feedbackAt: new Date() } },
+    { sort: { at: -1 } }
+  );
+}
+
 export function referenceNote(memory) {
   const refs = memory?.references || [];
   if (!refs.length) return '';
@@ -141,9 +173,7 @@ export function referenceNote(memory) {
       (d, i) =>
         `\nReference ${i + 1}: ${d.category || 'business'}${d.city ? ` in ${d.city}` : ''} (similarity ${d.match}; ${reaction(d)})\n` +
         `Concept: ${d.concept || 'unknown'}\n` +
-        `Sections: ${d.outline
-          .map((b) => `${b.tag}${b.id ? `#${b.id}` : ''}${b.heading ? ` "${b.heading}"` : ''}${b.parts?.length ? ` [${b.parts.join(' ')}]` : ''}${b.hooks?.length ? ` {${b.hooks.join(' ')}}` : ''}`)
-          .join(' → ')}` +
+        `Sections: ${outlineLine(d)}` +
         (d.footer ? `\nFooter markup outline: ${d.footer}` : '')
     ),
   ].join('\n');
@@ -201,7 +231,11 @@ export async function designMemory(category, industryId, site = null) {
   const references = site ? await similarDesigns(site, industryId).catch((err) => (log.warn('reference lookup failed', { error: err.message }), [])) : [];
   if (references.length) log.info('reference designs found', { count: references.length, matches: references.map((d) => `${d.slug}:${d.match}`) });
   const inspirations = await currentInspirations();
-  return { recent, liked, rejected, lessons: learned, references, inspirations };
+  const rated = (await designs.find({}).sort({ at: -1 }).limit(300).toArray()).filter((d) => d.slug !== site?.slug);
+  const score = (d) => d.rating || (d.outcome === 'converted' ? 4.5 : d.feedback === 'positive' ? 4 : 0);
+  const best = rated.filter((d) => score(d) >= 4).sort((a, b) => score(b) - score(a)).slice(0, 3);
+  const worst = rated.filter((d) => (d.rating && d.rating <= 2) || d.feedback === 'negative').slice(0, 4);
+  return { recent, liked, rejected, lessons: learned, references, inspirations, best, worst };
 }
 
 export function memoryNote(memory) {

@@ -4,7 +4,7 @@ import { log } from './log.js';
 import { callGemini, geminiEnabled } from './gemini.js';
 import { callClaudeRaw, claudeEnabled } from './claude.js';
 import { escapeHtml } from './render.js';
-import { memoryNote, referenceNote } from './memory.js';
+import { memoryNote, referenceNote, qualityNote } from './memory.js';
 import { inspirationNote } from './inspirations.js';
 import { knowledgeNote } from './knowledge.js';
 import { pickSeed, briefIssues, SCRIPT_FONTS, supportsScript } from './designrules.js';
@@ -36,8 +36,8 @@ INSPIRATION LIBRARY (what wins Awwwards, CSS Design Awards and design hackathons
 - Interaction: magnetic buttons, a cursor that snaps to and outlines buttons, fill-sweep or text-swap buttons, 3D tilt cards, spotlight cards following the cursor, a custom cursor with a "View" label over pictures, picture zoom inside its frame on hover, a smooth accordion FAQ, tabs for service categories.
 - Finish: a refined light/dark mode switch, subtle film grain or texture, hairline grid lines, gradient glows in the brand colours, a reading progress bar.
 
-KEEP IT LIGHT AND CALM
-Choose a few strong ideas and execute them perfectly; never stack every effect. A visitor should feel delight, not overwhelm. At most one canvas scene, one signature interaction and one story motif per page; everything else is quiet craft (type, spacing, photography, hairlines). The page must load fast on a mid-range phone on 4G.
+RICH, MEMORABLE AND FAST
+Aim for a site a design jury would screenshot: layered compositions, bold typographic moments, photography given drama (overlaps, arches, duotones, collage, full-bleed bands), colour used with confidence and a clear signature idea. Minimal never means plain or empty; a text-only hero, slogan-only bands and rows of identical cards are failures. Richness comes from composition, type, colour and photography rather than heavy scripts: at most one canvas scene and one story motif per page, every animation on transform and opacity, and the page still loads fast on a mid-range phone on 4G.
 
 USE EVERYTHING THE OWNER TOLD YOU
 The facts include "ownerWords" (the owner's full message or voice-note transcript) and "ownerDetails" (every concrete detail they mentioned beyond name, place and services: speciality, story, who they serve, how they work, what makes them different, any hours, prices or numbers they stated). Build the copy, the sections and the trust content from these details; they are the difference between a generic site and their site. "ownerPhotos" describes what their photos show: let the photos decide the look and the sections (a hotel's rooms, a bakery's cakes, a mover's truck).
@@ -127,9 +127,9 @@ const PAGE_PROMPT = `You are an award-level web designer and front-end developer
 DESIGN STANDARD
 Build it the way Apple's web team would build a page for this business: calm, precise, premium, and alive. Large confident typography, generous whitespace on an 8px rhythm, photography given real space, one idea per section, layered depth, and motion that feels physical (cubic-bezier(.2,.8,.2,1) style easing, short distances, never bouncy unless the brand is playful). Finish every detail: consistent radius scale, hairline borders, optical alignment, balanced headline wraps (text-wrap: balance), no orphans in headings.
 
-LIGHTWEIGHT, NEVER OVERWHELMING (as important as the design itself)
-- The finished page must stay light: concise CSS (aim for under 35 KB), no huge inline SVG, no image-heavy decoration, no effect that runs constantly without purpose. At most one data-scene per page, and only when the art direction asks for one.
-- Use effects with restraint: one signature interaction, one story motif, purposeful reveals. Calm pages with perfect type and photography beat busy pages.
+RICH BUT FAST
+- Visually rich and memorable in every section: layered compositions, picture treatments, confident colour blocks, decorative systems and real typographic moments. Plain, empty or template-like sections are failures.
+- Fast by construction: CSS up to about 60 KB, no huge inline SVG, animation only on transform and opacity, at most one data-scene per page (only when the art direction asks for one), nothing that runs constantly without purpose.
 
 WOW FACTOR (the art direction's "wowMoments" are mandatory; this page should be able to win a design hackathon through craft, not through quantity)
 - Build every wow moment from the art direction for real, with the hooks below and CSS: kinetic typography, a story-style photo viewer, a light canvas scene, Liquid Glass controls, a Dock-like action row, words lighting up on scroll, the story motif, pinned horizontal galleries, stacking cards (position: sticky with growing top offsets), marquee bands (a CSS keyframe loop of a duplicated row), spotlight and tilt cards, magnetic buttons, a custom cursor with labels, scroll-linked progress, bento grids, overlapping frames, gradient glows.
@@ -151,6 +151,8 @@ ACCESSIBILITY (WCAG 2.2 AA)
 
 LAYOUT
 - Follow the hero layout in the art direction. The hero lands in the first second on a 390px phone: the headline, a clear offer, the WhatsApp action and a striking composition.
+- The hero always has a strong visual: the hero picture ({{hero_src}} or the owner's photos in a story viewer, collage or framed composition), or, only when no picture exists, a rich illustrated composition. Never a text-only hero.
+- Horizontal strips and carousels start fully inside the page margin: their first card is never cut off at the left edge, and they never cause horizontal page scroll.
 - Avoid the generic template rhythm (centred hero, three icon cards, testimonials, footer). Vary the structure: asymmetric grids, overlapping images, full-bleed bands, sticky side panels, horizontal scroll strips, bento grids, editorial columns. Every section looks different from the one before it while sharing one visual language.
 - Mobile first and still designed on phones, then real layout upgrades at 720px and 1100px (and a refined max-width around 1280px on very wide screens), with no horizontal overflow at 360px. Check the design at 360, 390, 768, 1024 and 1440 pixels in your head: nothing overlaps, nothing is cut off, tap targets stay large, and headings scale with clamp().
 - Sections, adapted to the business: hero, about or story, products or services, gallery when there are photos, a trust section built only from real facts, location with a map link only when an address exists, and a strong contact section with WhatsApp and Call buttons.
@@ -218,6 +220,7 @@ TECHNICAL CONTRACT
 - CSS is plain CSS: no @import, no @font-face, no url(). Use as much CSS as the design needs.
 - Pictures only through the image placeholders below, never external URLs (no Unsplash). Icons as inline SVG in one consistent style.
 - The system adds the page title, meta description, Open Graph tags, a favicon, a slim credit line, the sticky bottom contact bar, the photo lightbox, an enquiry form and a videos section (placed right before your footer). Do not add them yourself. The credit line below your footer already leaves room for the contact bar on phones.
+- Place an empty <div data-enquiry></div> inside your contact section where the enquiry form belongs (for example beside the contact details): the system puts its form there instead of in a separate section. Style it as part of your design: .sx-form (a grid), .sx-form label, .sx-form input, .sx-form textarea and .sx-form button (your primary button style); keep inputs at least 48px tall, with visible labels and focus states in both modes.
 - Give every interactive element a visible :focus-visible state.
 
 INTERACTION HOOKS (a trusted script wires these up; everything must still look right without it)
@@ -318,7 +321,7 @@ const HOOK_ATTRS = [
   'data-tilt', 'data-magnetic', 'data-speed', 'data-rotate', 'data-tabs', 'data-tab', 'data-panel',
   'data-carousel', 'data-track', 'data-prev', 'data-next', 'data-split', 'data-menu', 'data-cursor',
   'data-sound-toggle', 'data-sound', 'aria-pressed', 'data-scene', 'data-density', 'data-progress', 'data-hscroll',
-  'data-hs-track', 'data-theme-toggle', 'data-cursor-label', 'data-glass', 'data-dock', 'data-highlight', 'data-stories', 'data-slide', 'data-story-count',
+  'data-hs-track', 'data-theme-toggle', 'data-cursor-label', 'data-glass', 'data-dock', 'data-highlight', 'data-stories', 'data-slide', 'data-story-count', 'data-enquiry',
 ];
 const SVG_ATTRS = [
   'viewBox', 'd', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'stroke-dasharray',
@@ -796,7 +799,7 @@ export async function createArtDirection(site, memory = null, meter = null) {
   const note = memoryNote(memory);
   const base =
     `Business facts:\n${JSON.stringify(facts(site), null, 2)}\n\n${industryBrief(industry)}\n\n${seedText(seed)}` +
-    (note ? `\n\nRECENTLY USED DESIGNS (do not resemble any of these in palette, fonts or layout):\n${note}` : '') +
+    (note ? `\n\nRECENTLY USED DESIGNS (give this site its own identity: a different palette, fonts and hero layout from these; this is about identity, not about lowering ambition):\n${note}` : '') +
     libraryNote(memory, 'art');
   for (const provider of providers()) {
     try {
@@ -806,7 +809,7 @@ export async function createArtDirection(site, memory = null, meter = null) {
         const user = attempt
           ? `${base}\n\nYour last art direction broke these rules, fix all of them:\n- ${issues.join('\n- ')}`
           : base;
-        const raw = await ask(provider, { system: ART_PROMPT, user, maxTokens: 32000, effort: 'high', timeoutMs: 300000, json: true, meter, step: 'art direction' });
+        const raw = await ask(provider, { system: ART_PROMPT, user, maxTokens: 24000, effort: attempt ? 'medium' : 'high', timeoutMs: 300000, json: true, meter, step: 'art direction' });
         brief = cleanBrief(parseJsonLoose(raw));
         issues = briefIssues(brief, memory, { language: site.language });
         if (!issues.length) break;
@@ -822,7 +825,7 @@ export async function createArtDirection(site, memory = null, meter = null) {
 }
 
 function libraryNote(memory, stage = 'page') {
-  const parts = [inspirationNote(memory?.inspirations), referenceNote(memory), knowledgeNote(memory?.knowledge?.[stage])].filter(Boolean);
+  const parts = [inspirationNote(memory?.inspirations), qualityNote(memory), referenceNote(memory), knowledgeNote(memory?.knowledge?.[stage])].filter(Boolean);
   return parts.length ? `\n\n${parts.join('\n\n')}` : '';
 }
 
@@ -890,7 +893,7 @@ function audit(page, site) {
   return auditPage(page, site, fillTemplate(page.body, data));
 }
 
-const REVIEW_MIN_USD = 1.0;
+const REVIEW_MIN_USD = 0.4;
 
 const REVIEW_PROMPT = `You are the design director who signs off every website before it goes live: a senior UI/UX designer, a front-end engineer and a type director in one, with Apple-level standards. You receive the business facts, the art direction and the complete page that was just built (META, CSS and BODY using the system's placeholders and hooks), plus any problems an automatic check found.
 
@@ -904,33 +907,102 @@ Review it as if you were looking at it in a browser at 360, 390, 768, 1024 and 1
 7. Honesty and contract: no invented facts (prices, ratings, years, counts, awards, addresses, hours), every placeholder, template block, required id and hook still working, nothing outside the allowed tags.
 8. Fix every problem the automatic check listed.
 
-Then reply in exactly one of two ways, with nothing before or after:
+8. Visual ambition: if the page looks plain, generic or template-like anywhere (a text-only hero, a flat band that just repeats a slogan, a section of identical cards, an unstyled area), raise it to the level of the art direction and the studio standard with real compositions, picture treatments and details.
+9. Rendering bugs a browser would show: text that is invisible or nearly invisible in any state or mode (the same colour as its background, opacity left at 0, a reveal that never shows), strips or cards cut off at the screen edge, elements hidden under the sticky nav, overlapping text.
+
+Reply in exactly one of two ways, with nothing before or after:
 - If the page already meets this standard everywhere: the single line ===PASS===
-- Otherwise: the complete improved page in exactly the original output format (===META===, ===CSS===, ===BODY===, ===END===), keeping everything that already works and improving the rest. Never shorten the page or drop sections.`;
+- Otherwise: precise edits only, never the whole page. Each edit replaces one exact piece of the current CSS or BODY:
+@@ CSS
+FIND:
+(an exact, unique excerpt of the current CSS, a few lines)
+REPLACE:
+(the new text)
+@@ BODY
+FIND:
+(an exact, unique excerpt of the current BODY)
+REPLACE:
+(the new text)
+@@ ADD CSS
+(new CSS rules to append at the end)
+@@ END
+Use as many edits as needed, most important first. FIND must be copied character for character from the page you received. Keep every placeholder, template block, required id and hook working.`;
+
+export function applyEdits(css, body, out) {
+  const parts = String(out || '').split(/^@@ (CSS|BODY|ADD CSS|END)[ \t]*$/m);
+  let applied = 0;
+  let missed = 0;
+  for (let i = 1; i < parts.length; i += 2) {
+    const kind = parts[i];
+    const block = parts[i + 1] || '';
+    if (kind === 'END') break;
+    if (kind === 'ADD CSS') {
+      const add = block.trim();
+      if (add) {
+        css = `${css}\n${add}`;
+        applied++;
+      }
+      continue;
+    }
+    const m = /^\s*FIND:\n([\s\S]*?)\nREPLACE:\n?([\s\S]*)$/.exec(block);
+    if (!m) {
+      missed++;
+      continue;
+    }
+    const find = m[1];
+    const replace = m[2].replace(/\n$/, '');
+    const target = kind === 'CSS' ? css : body;
+    const at = target.indexOf(find);
+    if (!find.trim() || at < 0) {
+      missed++;
+      continue;
+    }
+    const next = target.slice(0, at) + replace + target.slice(at + find.length);
+    if (kind === 'CSS') css = next;
+    else body = next;
+    applied++;
+  }
+  return { css, body, applied, missed };
+}
+
+const REVIEW_ROUND_USD = 0.5;
 
 async function reviewPage(raw, issues, site, brief, meter, library = '') {
-  const user =
-    `Business facts:\n${JSON.stringify(facts(site), null, 2)}\n\n` +
-    (brief ? `Art direction:\n${JSON.stringify({ ...brief, images: undefined, imagePrompts: undefined, searchQueries: undefined }, null, 2)}\n\n` : '') +
-    (library ? `${library.trim()}\n\n` : '') +
-    `Problems found by the automatic check:\n${issues.length ? `- ${issues.join('\n- ')}` : '- none'}\n\n` +
-    `The page:\n${String(raw).slice(0, 220000)}\n\nReview it now.`;
-  const out = await ask('claude', {
-    system: `${REVIEW_PROMPT}\n\nTHE PAGE CONTRACT THE PAGE MUST KEEP:\n${PAGE_PROMPT.slice(PAGE_PROMPT.indexOf('OUTPUT FORMAT'))}`,
-    user,
-    maxTokens: 100000,
-    effort: config.ai.designEffort,
-    timeoutMs: 1200000,
-    meter,
-    step: 'design review',
-  });
-  if (/^\s*===PASS===/.test(out)) {
-    log.info('design review passed the page');
-    return null;
+  let { meta, css, body } = parseSections(raw);
+  let changed = false;
+  let pending = issues;
+  for (let round = 1; round <= 2; round++) {
+    if (round > 1 && meter && meter.claudeLeft() < REVIEW_ROUND_USD) break;
+    const user =
+      `Business facts:\n${JSON.stringify(facts(site), null, 2)}\n\n` +
+      (brief ? `Art direction:\n${JSON.stringify({ ...brief, images: undefined, imagePrompts: undefined, searchQueries: undefined }, null, 2)}\n\n` : '') +
+      (library ? `${library.trim()}\n\n` : '') +
+      `Problems found by the automatic check:\n${pending.length ? `- ${pending.join('\n- ')}` : '- none'}\n\n` +
+      `The page${round > 1 ? ' after your first round of edits' : ''}:\n===META===\n${JSON.stringify(meta)}\n===CSS===\n${css}\n===BODY===\n${body}\n===END===\n\nReview it now.`;
+    const out = await ask('claude', {
+      system: `${REVIEW_PROMPT}\n\nTHE PAGE CONTRACT THE PAGE MUST KEEP:\n${PAGE_PROMPT.slice(PAGE_PROMPT.indexOf('TECHNICAL CONTRACT'))}`,
+      user,
+      maxTokens: 32000,
+      effort: 'medium',
+      timeoutMs: 900000,
+      meter,
+      step: `design review ${round}`,
+    });
+    if (/^\s*===PASS===/.test(out)) {
+      log.info('design review passed the page', { round });
+      break;
+    }
+    const edited = applyEdits(css, body, out);
+    log.info('design review edits', { round, applied: edited.applied, missed: edited.missed });
+    if (!edited.applied) break;
+    css = edited.css;
+    body = edited.body;
+    changed = true;
+    pending = audit(toPage(meta, css, body), site).issues;
   }
-  const { meta, css, body } = parseSections(out);
+  if (!changed) return null;
   const page = withScriptFonts(toPage(meta, css, body), site.language, brief?.fonts?.script?.family);
-  return validPage(page) && page.body.length >= 0.6 * parseSections(raw).body.length ? page : null;
+  return validPage(page) ? page : null;
 }
 
 async function fontsLoad(url) {

@@ -45,7 +45,7 @@ function galleryHtml(site, photos) {
     .join('')}</div></section>`;
 }
 
-export function extrasHtml(site, { gallery = [] } = {}) {
+export function extrasHtml(site, { gallery = [], withForm = true } = {}) {
   const lang = site.language || 'en';
   const videos = (site.videos || []).filter((v) => v?.url);
   const videoBlock = videos.length
@@ -53,8 +53,19 @@ export function extrasHtml(site, { gallery = [] } = {}) {
         .map((v) => `<video controls playsinline preload="metadata" src="${e(v.url)}"></video>`)
         .join('')}</div></section>`
     : '';
+  const form = withForm ? `<section class="sx" id="enquiry"><h2>${e(enquiryTitle(site))}</h2>\n${enquiryForm(site)}</section>` : '';
+  return galleryHtml(site, gallery) + videoBlock + form;
+}
+
+export function enquiryTitle(site) {
+  const lang = site.language || 'en';
   const action = industryAction(classifyIndustry(site));
-  const title = lang === 'en' ? action.form : t(lang, 'form_title');
+  return lang === 'en' ? action.form : t(lang, 'form_title');
+}
+
+export function enquiryForm(site) {
+  const lang = site.language || 'en';
+  const action = industryAction(classifyIndustry(site));
   const fields = action.fields
     .map((f) => {
       const label = e(t(lang, `form_${f}`));
@@ -64,8 +75,7 @@ export function extrasHtml(site, { gallery = [] } = {}) {
       return `<label>${label}<input name="need" maxlength="200"></label>`;
     })
     .join('\n');
-  const form = `<section class="sx" id="enquiry"><h2>${e(title)}</h2>
-<form class="sx-form" method="post" action="/lead">
+  return `<form class="sx-form" method="post" action="/lead">
 <label>${e(t(lang, 'form_name'))}<input name="name" required maxlength="80" autocomplete="name"></label>
 <label>${e(t(lang, 'form_phone'))}<input name="phone" type="tel" required inputmode="tel" maxlength="20" autocomplete="tel"></label>
 <label>${e(t(lang, 'form_email'))}<input name="email" type="email" maxlength="120" autocomplete="email"></label>
@@ -73,6 +83,5 @@ ${fields}
 <label>${e(t(lang, 'form_message'))}<textarea name="message" maxlength="1000"></textarea></label>
 <div class="sx-hp" aria-hidden="true"><label>Website<input name="website" tabindex="-1" autocomplete="off"></label></div>
 <button type="submit">${e(t(lang, 'form_send'))}</button>
-</form></section>`;
-  return galleryHtml(site, gallery) + videoBlock + form;
+</form>`;
 }

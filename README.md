@@ -87,6 +87,17 @@ followed by their own notes, `knowledge` for the status, `knowledge search hero 
 would read, `forget https://site.com` and `relearn`. Sites that render only with JavaScript or block automatic
 readers give little text; send those as PDFs or notes instead.
 
+Quality is learned from ratings, not only from repetition. After every new website the owner is asked
+"Love it / It's okay / Not good", and admins can rate any site with `rate <slug> <1-5> <what you liked or
+disliked>`. The highest-rated designs from any kind of business become the quality bar in every new prompt
+(their concept, section rhythm and the rater's words), and low-rated ones become weaknesses to avoid.
+
+The design review costs a fraction of a full rebuild: the design director answers with precise edits (exact
+find and replace on the CSS or HTML, plus new CSS rules) instead of rewriting the page, so up to two review
+rounds fit in the budget. It also checks for invisible text, strips cut off at the screen edge, text-only
+heroes and plain sections. The enquiry form is placed inside the designer's own contact section through an
+empty `data-enquiry` element and styled with the page.
+
 The studio standard comes from websites the admin likes. An admin sends `inspire https://site.com what I
 love` or a screenshot with the caption `inspire`; Gemini distils it into concrete, transferable design
 standards (layout, type, colour, imagery, motion, footer, signature technique) that every art direction,
