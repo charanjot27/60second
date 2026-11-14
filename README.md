@@ -71,6 +71,14 @@ and repaired when a family lacks the requested weights. With `OPENAI_API_KEY` se
 from Opus's prompt; a vision review checks each one and a rejected picture is redrawn once with the
 reviewer's correction, all within the picture budget. Each site's spend is logged and stored.
 
+Every site gets light and dark mode with a remembered switch, and Opus picks three to five "wow moments" from
+an inspiration library of award-site patterns. A trusted script (no model-written JavaScript) provides the
+effects: live 3D canvas scenes (`data-scene="globe|wave|constellation|orbs"`, paused offscreen, still with
+reduced motion), pinned horizontal galleries (`data-hscroll`), scroll-linked values (`data-progress`), a
+soft-follow custom cursor with labels (`data-cursor-label`), plus the existing reveals, tilt, magnetic
+buttons, parallax, tabs, carousels and sound. Picture prompts ask for documentary realism (concrete camera,
+lens, light and film look, no "stunning/8K" words) and the photo review rejects anything that looks AI-made.
+
 Opus writes a business brief (offer, audience, problem, main action, evidence,
 facts, assumptions and missing information) and an art direction for that one business, with four
 structured picture records that become ordered production prompts. Stock and AI candidates are reviewed
@@ -210,7 +218,7 @@ test/
 | `WA_VERIFY_TOKEN` | Webhook registration |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_DESIGN_MODEL` | Opus for website design, page edits and picture briefs only |
 | `CLAUDE_BUDGET_USD`, `IMAGE_BUDGET_USD`, `IMAGE_COST_USD`, `IMAGE_SOURCE` | Per-site spend limits and where pictures come from |
-| `ANTHROPIC_CHAT_MODEL` | Backup small model (Haiku by default, empty to turn off) for chat, reading answers, photo checks and lessons; Gemini goes first when `GEMINI_API_KEY` is set |
+| `ANTHROPIC_CHAT_MODEL` | Empty by default, so chat, reading answers, photo checks and lessons run on Gemini only; set `claude-haiku-5-5` for a Claude backup |
 | `ANTHROPIC_DESIGN_MODEL` | Designer model, default `claude-opus-5-5` |
 | `MONGO_URL`, `MONGO_DB` | Database |
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Photo uploads |

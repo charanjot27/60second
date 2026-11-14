@@ -181,6 +181,11 @@ export function briefIssues(brief, memory, { language } = {}) {
   if (ratio !== null && ratio < 4.5) issues.push(`ink ${p.ink} on background ${p.bg} has contrast ${ratio.toFixed(1)}:1, it must be at least 4.5:1.`);
   const muted = contrast(p.muted, p.bg);
   if (muted !== null && muted < 4.5) issues.push(`secondary text ${p.muted} on background ${p.bg} has contrast ${muted.toFixed(1)}:1, it must be at least 4.5:1.`);
+  const dark = brief?.darkPalette || {};
+  const darkInk = contrast(dark.ink, dark.bg);
+  if (darkInk !== null && darkInk < 4.5) issues.push(`the dark mode ink ${dark.ink} on ${dark.bg} has contrast ${darkInk.toFixed(1)}:1, it must be at least 4.5:1.`);
+  const darkBtn = contrast(dark.onAccent, dark.accent);
+  if (darkBtn !== null && darkBtn < 4.5) issues.push(`the dark mode button text ${dark.onAccent} on ${dark.accent} has contrast ${darkBtn.toFixed(1)}:1, it must be at least 4.5:1.`);
   const btn = contrast(p.onAccent, p.accent);
   if (btn !== null && btn < 4.5) issues.push(`button text ${p.onAccent} on accent ${p.accent} has contrast ${btn.toFixed(1)}:1, it must be at least 4.5:1.`);
   if (/^#?0{6}$/i.test(String(p.ink || '')) && /^#?f{6}$/i.test(String(p.bg || ''))) {

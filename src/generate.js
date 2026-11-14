@@ -25,6 +25,13 @@ STEP 1: WRITE THE BUSINESS BRIEF FIRST
 DESIGN STANDARD
 Design like the best of Apple, Aesop, Stripe and the Awwwards Site of the Day, translated for a local business: restraint, one clear idea per section, generous whitespace, confident large type, real-feeling photography given room to breathe, depth from layering and light rather than shadows on everything, and details that reward a second look (hairline rules, consistent radius scale, an 8px spacing rhythm, careful optical alignment). Every choice must make the business look more trustworthy and more desirable to its own customers.
 
+INSPIRATION LIBRARY (what wins Awwwards, CSS Design Awards and design hackathons; choose what fits this business, never all of it)
+- Hero: kinetic split-word headline, an oversized typographic hero with an inset picture, a full-bleed photograph with a calm text panel, a 3D scene (rotating point globe, flowing 3D wave field, cursor-reactive constellation, soft drifting light orbs) behind the headline, layered parallax depth.
+- Storytelling: sticky split-screen where the text scrolls past a pinned picture, a horizontal scroll gallery pinned while the page scrolls, stacking cards that pile up as you scroll, a scroll-linked progress line, numbered chapters.
+- Layout: bento grids of mixed card sizes, editorial columns with pull quotes, an infinite marquee band of services, overlapping picture frames, asymmetric grids, full-bleed colour bands.
+- Interaction: magnetic buttons, fill-sweep or text-swap buttons, 3D tilt cards, spotlight cards following the cursor, a custom cursor with a "View" label over pictures, picture zoom inside its frame on hover, a smooth accordion FAQ, tabs for service categories.
+- Finish: a refined light/dark mode switch, subtle film grain or texture, hairline grid lines, gradient glows in the brand colours, a reading progress bar.
+
 THE DESIGN SEED IS MANDATORY
 You receive a seed: style archetype, colour mood, typography direction, hero layout and motion personality, chosen at random by the system. Follow it. The business decides how far to push it: a brutalist seed for a children's clinic becomes soft brutalism (bold structure, friendly colours, rounded type). Never let the seed produce something unsuitable for the business.
 
@@ -65,6 +72,9 @@ Reply with JSON only:
   "voice": "how the copy should sound",
   "mode": "light" or "dark",
   "palette": {"bg": "#hex", "surface": "#hex", "ink": "#hex", "muted": "#hex", "line": "#hex", "dominant": "#hex", "supporting": ["#hex"], "accent": "#hex", "onAccent": "#hex", "neutral": "#hex", "success": "#hex", "warning": "#hex", "error": "#hex"},
+  "darkPalette": {"bg": "#hex", "surface": "#hex", "ink": "#hex", "muted": "#hex", "line": "#hex", "accent": "#hex", "onAccent": "#hex"},
+  "wowMoments": ["three to five signature moments from the INSPIRATION LIBRARY, each tied to a section and to this business"],
+  "scene": "globe, wave, constellation, orbs or none: the one 3D scene for the hero or a feature band, only when it suits the business",
   "fonts": {"display": {"family": "Google Fonts family", "weights": "400;700"}, "body": {"family": "Google Fonts family", "weights": "400;500;600"}, "script": {"family": "only for Punjabi or Hindi pages", "weights": "400;600"}},
   "typographicMoment": "the one typographic moment (an oversized word, italic within a heading, outlined text, a vertical label, a huge number)",
   "layout": ["one short line per section describing its composition, in page order; every section different"],
@@ -82,7 +92,11 @@ Reply with JSON only:
 
 Sound: true only if it truly suits the business (a kids' play zone, a game cafe, a music studio, a playful bakery); false for clinics, law, finance and most services.
 BUSINESS CLASS: you also receive the class this business belongs to, with the feeling, the picture for each section, the content to cover and what to avoid. Treat it as expert guidance for this kind of business; if the business only partly fits, borrow most of the direction from the closest related class.
+LIGHT AND DARK MODE
+Every site has both. "mode" is the default; "darkPalette" (or the light palette, when dark is the default) is the other mode, designed with the same care, with the same contrast rules, and with pictures that still look natural on it.
+
 PICTURES (you are also the photographer and art director; the image model only sees your "prompt", so it must be excellent)
+- The pictures must look like real photographs a skilled local photographer took for this business, never like AI art: documentary and editorial realism, candid unposed moments, real materials with wear and texture, believable everyday clutter where it belongs, natural available light, a slight lens imperfection or subtle film grain, never glossy, symmetrical, plastic or over-perfect. Never use the words stunning, beautiful, perfect, hyper-realistic, 8K or cinematic masterpiece; describe the photograph concretely instead (camera, lens, aperture, light, the film look such as "Kodak Portra 400 tones").
 - First set one "shoot" for the whole site: one location, one time of day, one light, one lens, one colour grade, so the four pictures look like one professional commission, not stock.
 - Each "prompt" is one rich paragraph of natural language, written the way a top photographer briefs a retoucher, in this order: what the picture is for and its format ("A wide 3:2 editorial hero photograph for a dental clinic in Ludhiana"), the exact subject with concrete, specific details of this business and its services, the setting and local context (architecture, materials, signage-free streets, climate, typical interiors of that city), the composition and focal point (rule of thirds, where the subject sits, foreground and background layers, and which side is left calm and uncluttered for the page headline), camera and lens (for example "full-frame, 35mm at f/2.8, eye level"), light (direction, softness, time of day), colour grade tied to the palette, mood, and realism notes (true-to-life textures, natural imperfections, believable scale, no plastic sheen, no over-saturation, no HDR glow).
 - Picture people only as hands at work, figures from behind, or small figures at a distance; never a recognisable face, and no text, letters, logos or watermarks unless exact_in_image_text_if_required asks for text that belongs in the scene.
@@ -100,6 +114,16 @@ const PAGE_PROMPT = `You are an award-level web designer and front-end developer
 
 DESIGN STANDARD
 Build it the way Apple's web team would build a page for this business: calm, precise, premium, and alive. Large confident typography, generous whitespace on an 8px rhythm, photography given real space, one idea per section, layered depth, and motion that feels physical (cubic-bezier(.2,.8,.2,1) style easing, short distances, never bouncy unless the brand is playful). Finish every detail: consistent radius scale, hairline borders, optical alignment, balanced headline wraps (text-wrap: balance), no orphans in headings.
+
+WOW FACTOR (the art direction's "wowMoments" and "scene" are mandatory; this page should be able to win a design hackathon)
+- Build every wow moment from the art direction for real, with the hooks below and CSS: kinetic typography, a 3D scene, pinned horizontal galleries, stacking cards (position: sticky with growing top offsets), marquee bands (a CSS keyframe loop of a duplicated row), spotlight and tilt cards, magnetic buttons, a custom cursor with labels, scroll-linked progress, bento grids, overlapping frames, gradient glows.
+- Polish beats quantity: every effect is smooth at 60fps, never hides content, never slows the call to action, and the page is still complete and beautiful with motion reduced or scripts off.
+
+LIGHT AND DARK MODE (required)
+- Define every colour as a custom property on :root, set --mode: light (or dark) there, then the other mode under [data-theme="dark"] (or [data-theme="light"]) with --mode set to match. Apply the art direction's default mode on :root.
+- Put a small, elegant theme switch button with data-theme-toggle in the nav (an inline SVG sun and moon that swap via [aria-pressed="true"]), with a visible focus state.
+- Smooth the switch: .theme-switching * { transition: background-color .35s, color .35s, border-color .35s, fill .35s; }.
+- Both modes meet the contrast rules; pictures, glows, shadows and the 3D scene colour (the element's color and --scene-glow) are adjusted for each mode.
 
 VISITOR JOURNEY AND ACTIONS
 - Order the page the way visitors decide: understand the offering, explore the relevant options, assess credibility, resolve concerns, take action. Adapt depth and order to the business; choose sections and features by what this business needs (a property dealer needs property types, visit booking and location; a restaurant needs the menu, hours, directions and reservations), never the same set for everyone.
@@ -183,6 +207,11 @@ INTERACTION HOOKS (a trusted script wires these up; everything must still look r
 - data-tabs on a wrapper holding buttons with data-tab="x" and panels with data-panel="x": the selected ones get class "on".
 - data-carousel on a wrapper holding a scroller with data-track and buttons with data-prev and data-next.
 - data-sound-toggle and data-sound="chime" as described under SOUND.
+- data-scene="globe" | "wave" | "constellation" | "orbs" on an empty div with a set height (or absolutely filling a section): the script draws a live 3D scene in a canvas inside it using the div's CSS color (and --scene-glow for orbs), reacting gently to the cursor, paused offscreen and still when motion is reduced. Layer text above it with position: relative and z-index. data-density="300" to 900 sets the number of points for globe.
+- data-theme-toggle on a button: switches html[data-theme] between light and dark, remembers the choice, sets aria-pressed, and adds class "theme-switching" on html for 450ms.
+- data-progress on any element: the script sets --p from 0 to 1 as it travels through the viewport, for scroll-linked effects such as transform: scaleX(var(--p)) or a rotating ornament.
+- data-hscroll on a section whose first child is a position: sticky; top: 0; height: 100vh; overflow: hidden wrapper holding a flex row with data-hs-track: on screens 900px and wider the section becomes tall and the row slides horizontally as the page scrolls (the section gains class "hs-on"); on phones style the row as a normal swipeable overflow-x: auto strip with scroll-snap.
+- data-cursor-label="View" (or another short word) on pictures or cards: the custom cursor gains class "label" and the word in its data-label attribute (show it with ::after { content: attr(data-label) }). The cursor follows with a soft delay.
 - The root element gets --scroll (0 to 1, for a progress bar with transform: scaleX(var(--scroll))) and, on desktop, --cx and --cy (cursor position, for a glow following the cursor).
 - Every img gets class "loaded" once it has loaded.
 
@@ -254,7 +283,8 @@ const TAGS = [
 const HOOK_ATTRS = [
   'data-tilt', 'data-magnetic', 'data-speed', 'data-rotate', 'data-tabs', 'data-tab', 'data-panel',
   'data-carousel', 'data-track', 'data-prev', 'data-next', 'data-split', 'data-menu', 'data-cursor',
-  'data-sound-toggle', 'data-sound', 'aria-pressed',
+  'data-sound-toggle', 'data-sound', 'aria-pressed', 'data-scene', 'data-density', 'data-progress', 'data-hscroll',
+  'data-hs-track', 'data-theme-toggle', 'data-cursor-label',
 ];
 const SVG_ATTRS = [
   'viewBox', 'd', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'stroke-dasharray',

@@ -11,6 +11,7 @@ process.env.ANTHROPIC_API_KEY = 'test-anthropic';
 process.env.STRIPE_SECRET_KEY = 'sk_test_x';
 process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
 process.env.ADMIN_PASSWORD = 'pw';
+process.env.ANTHROPIC_CHAT_MODEL = 'claude-haiku-5-5';
 
 const db = await import('../src/db.js');
 
@@ -1674,6 +1675,32 @@ test('with OpenAI set, every picture is commissioned from GPT, reviewed, redrawn
     tight.imageLimit = 0.5;
     await sourceSiteImages({ prompts: ['hero', 'about', 'services', 'detail'], queries: [], context: {}, ownerPhone: '919800000001', meter: tight });
     assert.equal(generations.length, 2);
+  } finally {
+    net.restore();
+    restore();
+  }
+});
+
+test('by default WhatsApp chat runs on Gemini only and never on Claude', async () => {
+  const restore = withConfig({ ai: { chatModel: '', apiKey: 'test-anthropic' }, gemini: { apiKey: 'g-key' } });
+  const net = mockFetch([
+    ['generativelanguage.googleapis.com', { candidates: [{ content: { parts: [{ text: JSON.stringify({ intent: 'question', answer: 'It is $9 every 2 weeks.' }) }] } }] }],
+  ]);
+  const { handleMessage } = await import('../src/bot.js');
+  const { extractBusiness } = await import('../src/ai.js');
+  const from = '919000000110';
+  try {
+    await db.sites.insertOne({ slug: 'geminichat', ownerPhone: from, businessName: 'Gemini Chat', status: 'active', plan: 'free', page: { body: '<p>x</p>', css: '' } });
+    await db.sessions.insertOne({ _id: from, state: 'LIVE', slug: 'geminichat', draft: {} });
+    await handleMessage({ id: crypto.randomUUID(), from, name: 'G', type: 'text', text: 'how much does it cost?' });
+    assert.ok(net.calls.at(-1).body.includes('$9 every 2 weeks'));
+    await extractBusiness('Gill Tea Stall near the bus stand, tea and samosas');
+    assert.ok(net.calls.some((c) => c.url.includes('generativelanguage')));
+    assert.ok(!net.calls.some((c) => c.url.includes('anthropic')));
+    config.gemini.apiKey = '';
+    await handleMessage({ id: crypto.randomUUID(), from, name: 'G', type: 'text', text: 'thank you so much brother' });
+    assert.ok(!net.calls.some((c) => c.url.includes('anthropic')));
+    assert.ok(net.calls.at(-1).body.includes('apply_edit'));
   } finally {
     net.restore();
     restore();
