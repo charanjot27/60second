@@ -344,13 +344,16 @@ export async function processPending() {
   if (running || !knowledgeEnabled()) return 0;
   running = true;
   let done = 0;
+  const awake = config.isProd
+    ? setInterval(() => fetch(`https://${config.rootDomain}/healthz`, { signal: AbortSignal.timeout(10000) }).catch(() => {}), 4 * 60 * 1000)
+    : null;
   try {
     for (const def of DEFAULT_SOURCES) {
       if (!(await knowledgeSources.findOne({ url: def.url }))) {
         await knowledgeSources.insertOne({ url: def.url, topic: def.topic, ...(def.pages ? { pages: def.pages } : {}), status: 'pending', at: new Date() });
       }
     }
-    const pending = (await knowledgeSources.find({ status: 'pending' }).toArray()).filter((s) => /^https?:/.test(s.url));
+    const pending = (await knowledgeSources.find({}).toArray()).filter((s) => (s.status === 'pending' || s.status === 'reading') && /^https?:/.test(s.url));
     for (const s of pending) {
       await knowledgeSources.updateOne({ url: s.url }, { $set: { status: 'reading' } });
       await ingestSource(s.url, { maxPages: s.pages || config.knowledge.pagesPerSource }).catch(async (err) => {
@@ -360,6 +363,7 @@ export async function processPending() {
     }
   } finally {
     running = false;
+    if (awake) clearInterval(awake);
   }
   return done;
 }
