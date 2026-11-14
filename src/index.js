@@ -84,7 +84,7 @@ async function processMessage(msg) {
     if (isDuplicateKey(err)) return;
     throw err;
   }
-  markRead(msg.id);
+  if (msg.type !== 'unsupported') markRead(msg.id);
   try {
     await handleMessage(msg);
   } catch (err) {

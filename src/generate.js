@@ -563,7 +563,7 @@ export function composeImagePrompt(rec, shoot = null) {
 }
 
 const FAKE_FACTS = [
-  [/(?:₹|rs\.?\s?|inr\s?|\$|usd\s?)\s?\d[\d,]*/i, 'a price'],
+  [/(?:₹|\brs\.?\s?|\binr\s?|\$|\busd\s?)\s?\d[\d,]*/i, 'a price'],
   [/\b\d+(?:\.\d)?\s*(?:\/\s*5|stars?|★)/i, 'a rating'],
   [/★/, 'a star rating'],
   [/\b\d+\+?\s*(?:years?|yrs?)\b/i, 'a number of years'],
