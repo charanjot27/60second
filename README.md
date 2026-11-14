@@ -61,7 +61,17 @@ design lessons; every new art direction receives the lessons for its business cl
 from a better first version. Admins send `lessons` on WhatsApp to read them. This is feedback-driven
 improvement, not model training.
 
-A site is made in stages. Opus writes a business brief (offer, audience, problem, main action, evidence,
+A site is made in stages, inside a per-site budget (`CLAUDE_BUDGET_USD`, default $3, and `IMAGE_BUDGET_USD`,
+default $2): Opus at high effort writes the brief and art direction (palette roles, a curated Google Fonts
+library with real weights, one photo "shoot" shared by every picture, and a finished GPT prompt per picture),
+then builds the page with up to 100K output tokens, then a design-director pass reviews the page at phone,
+tablet and desktop widths (responsiveness, picture fitting, typography, hover/focus/active states, motion,
+contrast, honesty) and returns either PASS or a polished page. Font links are checked against Google Fonts
+and repaired when a family lacks the requested weights. With `OPENAI_API_KEY` set, GPT draws every picture
+from Opus's prompt; a vision review checks each one and a rejected picture is redrawn once with the
+reviewer's correction, all within the picture budget. Each site's spend is logged and stored.
+
+Opus writes a business brief (offer, audience, problem, main action, evidence,
 facts, assumptions and missing information) and an art direction for that one business, with four
 structured picture records that become ordered production prompts. Stock and AI candidates are reviewed
 against each record's acceptance criteria; a rejected AI picture is redrawn once with a targeted
@@ -153,6 +163,7 @@ src/
 ├── porkbun.js     Porkbun API client
 ├── domainshop.js  Domain ideas, quotes, purchase, DNS and renewals
 ├── assets.js      Owner photo inspection and placement
+├── spend.js       Per-site Claude and picture budget meter
 ├── memory.js      Design records: avoids repeated combinations, feedback from owners
 ├── lessons.js     Daily design lessons distilled from owner feedback
 ├── assistant.js   Small-model router for chat, questions and photo review
@@ -198,6 +209,7 @@ test/
 | `WA_APP_SECRET` | Webhook signature check |
 | `WA_VERIFY_TOKEN` | Webhook registration |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_DESIGN_MODEL` | Opus for website design, page edits and picture briefs only |
+| `CLAUDE_BUDGET_USD`, `IMAGE_BUDGET_USD`, `IMAGE_COST_USD`, `IMAGE_SOURCE` | Per-site spend limits and where pictures come from |
 | `ANTHROPIC_CHAT_MODEL` | Backup small model (Haiku by default, empty to turn off) for chat, reading answers, photo checks and lessons; Gemini goes first when `GEMINI_API_KEY` is set |
 | `ANTHROPIC_DESIGN_MODEL` | Designer model, default `claude-opus-5-5` |
 | `MONGO_URL`, `MONGO_DB` | Database |

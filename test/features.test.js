@@ -1531,11 +1531,151 @@ test('owners are reminded to renew their own domain, and an expired one falls ba
     assert.equal(site.ownDomain.reminded, null);
 
     expiry = new Date(Date.now() - 10 * 864e5).toISOString();
-    await sweepOwnedDomains(new Date(Date.now() + 9 * 864e5));
+    await sweepOwnedDomains(new Date(Date.now() + 10 * 864e5));
     site = await db.sites.findOne({ slug: 'virksaree' });
     assert.ok(!site.customDomain);
     assert.equal(said(net.calls, 'was not renewed'), 1);
   } finally {
     net.restore();
+  }
+});
+
+const fullPage = (color) =>
+  `===META===\n{"themeColor":"${color}","fonts":[{"family":"Fraunces","weights":"400;700"}]}\n===CSS===\n${'a:focus-visible{outline:2px solid}\n'.repeat(200)}\n===BODY===\n` +
+  `<nav class="nav"></nav><section id="cta"><h1>{{name}}</h1><a href="{{wa}}">{{action}}</a></section><section id="about"></section><section id="services"></section><section id="contact"></section>${'<p>text</p>'.repeat(400)}\n===END===`;
+
+test('Opus builds the page, a design director review polishes it, all inside the Claude budget', async () => {
+  const { generateSitePage } = await import('../src/generate.js');
+  const { createMeter } = await import('../src/spend.js');
+  const run = async (replies, meter) => {
+    const bodies = [];
+    const net = mockFetch([
+      ['api.anthropic.com', null],
+      ['fonts.googleapis.com', {}],
+    ]);
+    const mocked = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (String(url).includes('api.anthropic.com')) {
+        bodies.push(JSON.parse(init.body));
+        return claudeStream(replies.shift());
+      }
+      return mocked(url, init);
+    };
+    try {
+      const page = await generateSitePage({ businessName: 'Study Room', services: [], photos: [] }, { concept: 'quiet focus' }, meter);
+      return { page, bodies };
+    } finally {
+      net.restore();
+    }
+  };
+  const restore = withConfig({ ai: { apiKey: 'test-anthropic' } });
+  try {
+    const meter = createMeter();
+    const reviewed = await run([fullPage('#111111'), fullPage('#222222')], meter);
+    assert.equal(reviewed.bodies.length, 2);
+    assert.ok(reviewed.bodies[0].max_tokens >= 90000);
+    assert.equal(reviewed.bodies[0].output_config.effort, 'high');
+    assert.match(JSON.stringify(reviewed.bodies[1].system), /design director/);
+    assert.match(JSON.stringify(reviewed.bodies[1].messages), /Fraunces/);
+    assert.equal(reviewed.page.themeColor, '#222222');
+    assert.equal(reviewed.page.qa.reviewed, true);
+    assert.deepEqual(meter.calls.map((c) => c.step), ['page build', 'design review']);
+    assert.ok(meter.claude > 0 && meter.claude < 0.01);
+
+    const passed = await run([fullPage('#333333'), '===PASS===\nLooks great.'], createMeter());
+    assert.equal(passed.page.themeColor, '#333333');
+
+    const tight = createMeter();
+    tight.claudeLimit = 0.5;
+    const cheap = await run([fullPage('#444444')], tight);
+    assert.equal(cheap.bodies.length, 1);
+    assert.ok(cheap.bodies[0].max_tokens <= 22500);
+    assert.equal(cheap.page.qa.reviewed, false);
+
+    const empty = createMeter();
+    empty.claudeLimit = 0.05;
+    await assert.rejects(run([fullPage('#555555')], empty));
+  } finally {
+    restore();
+  }
+});
+
+test('a font link with weights a family does not have is repaired instead of breaking the type', async () => {
+  const { verifyFonts } = await import('../src/generate.js');
+  const net = mockFetch([]);
+  const mocked = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    if (u.includes('fonts.googleapis.com')) {
+      return new Response('@font-face{}', { status: u.includes('DM+Serif+Display:wght@400;700') ? 400 : 200 });
+    }
+    return mocked(url, init);
+  };
+  try {
+    const page = {
+      fonts: 'https://fonts.googleapis.com/css2?family=DM+Serif+Display:wght@400;700&family=Figtree:wght@400;600&display=swap',
+      fontSpec: [{ family: 'DM Serif Display', weights: '400;700' }, { family: 'Figtree', weights: '400;600' }],
+    };
+    const fixed = await verifyFonts(page);
+    assert.equal(fixed.fonts, 'https://fonts.googleapis.com/css2?family=DM+Serif+Display:wght@400&family=Figtree:wght@400;600&display=swap');
+    const good = { ...page, fonts: 'https://fonts.googleapis.com/css2?family=Figtree:wght@400;600&display=swap' };
+    assert.equal(await verifyFonts(good), good);
+  } finally {
+    globalThis.fetch = mocked;
+    net.restore();
+  }
+});
+
+test('Opus writes the GPT picture prompt itself, tied to one shoot for the whole site', async () => {
+  const { composeImagePrompt, cleanImageRecord, cleanShoot } = await import('../src/generate.js');
+  const written =
+    'A wide 3:2 editorial hero photograph for a family dental clinic in Model Town, Ludhiana: a bright treatment room with a modern dental chair by a tall window, warm wood cabinetry, a tray of neatly arranged instruments in the foreground, the left third left calm and uncluttered for the headline.';
+  const rec = cleanImageRecord({ prompt: written, subject: 'treatment room', exclusions: 'people, text on equipment' }, 0);
+  const shoot = cleanShoot({ location: 'Model Town, Ludhiana', light: 'soft north window', lens: '35mm at f/2.8', grade: 'warm teal and cream' });
+  const prompt = composeImagePrompt(rec, shoot);
+  assert.ok(prompt.startsWith('A wide 3:2 editorial hero photograph'));
+  assert.match(prompt, /one consistent photo shoot: location Model Town, Ludhiana, soft north window light, 35mm at f\/2\.8, warm teal and cream colour grade/);
+  assert.match(prompt, /Avoid: people, text on equipment\./);
+  assert.match(prompt, /No text, letters, logos or watermarks/);
+  assert.equal(cleanShoot({}), null);
+});
+
+test('with OpenAI set, every picture is commissioned from GPT, reviewed, redrawn once if rejected, and capped by the image budget', async () => {
+  const sharp = (await import('sharp')).default;
+  const png = await sharp({ create: { width: 64, height: 48, channels: 3, background: '#a85' } }).png().toBuffer();
+  const { sourceSiteImages } = await import('../src/photos.js');
+  const { createMeter } = await import('../src/spend.js');
+  const restore = withConfig({ images: { openaiKey: 'sk-test', openaiModel: 'gpt-image-test', pexelsKey: 'p', source: 'ai' }, gemini: { apiKey: 'g-key' } });
+  const generations = [];
+  let review = null;
+  const net = mockFetch([
+    ['api.openai.com/v1/models/', { id: 'gpt-image-test' }],
+    ['api.openai.com/v1/images/generations', (u, init) => {
+      generations.push(JSON.parse(init.body).prompt);
+      return { data: [{ b64_json: png.toString('base64') }] };
+    }],
+    ['generativelanguage.googleapis.com', (u, init) => {
+      review = JSON.parse(init.body);
+      const picks = [{ slot: 1, choice: null, fix: 'show the dental chair, not a sofa' }, { slot: 2, choice: '2A' }, { slot: 3, choice: '3A' }, { slot: 4, choice: '4A' }];
+      return { candidates: [{ content: { parts: [{ text: JSON.stringify({ picks }) }] } }] };
+    }],
+  ]);
+  try {
+    const meter = createMeter();
+    await sourceSiteImages({ prompts: ['hero', 'about', 'services', 'detail'], queries: ['a', 'b', 'c', 'd'], context: {}, ownerPhone: '919800000001', meter });
+    assert.ok(!net.calls.some((c) => c.url.includes('pexels')));
+    assert.equal(generations.length, 5);
+    assert.match(generations[4], /Correction from the photo editor: show the dental chair/);
+    assert.equal(review.contents[0].parts.filter((p) => p.inline_data).length, 4);
+    assert.equal(meter.images, 5 * config.budget.imageCostUsd);
+
+    generations.length = 0;
+    const tight = createMeter();
+    tight.imageLimit = 0.5;
+    await sourceSiteImages({ prompts: ['hero', 'about', 'services', 'detail'], queries: [], context: {}, ownerPhone: '919800000001', meter: tight });
+    assert.equal(generations.length, 2);
+  } finally {
+    net.restore();
+    restore();
   }
 });

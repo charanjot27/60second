@@ -4,8 +4,8 @@ import { log } from './log.js';
 import { processAndUpload } from './storage.js';
 
 const STYLE =
-  'editorial photograph, shot on a full-frame camera, natural light, true-to-life colour, sharp focus, shallow depth of field, ' +
-  'realistic Indian setting, no watermark, no distorted faces';
+  'Photorealistic editorial photograph, as if shot by a professional photographer on a full-frame camera: true-to-life colour and textures, natural imperfections, believable scale and perspective, ' +
+  'accurate hands and anatomy, no plastic sheen, no over-saturation, no HDR glow, no watermark, no distorted faces';
 const NO_TEXT = ', no text, no letters, no logos';
 
 export const SHAPES = {
@@ -29,7 +29,7 @@ class ProviderError extends Error {
   }
 }
 
-const full = (prompt) => `${prompt}. ${STYLE}${/Exact text in the scene:/.test(prompt) ? '' : NO_TEXT}`.slice(0, 2000);
+const full = (prompt, max = 3800) => `${prompt}. ${STYLE}${/Exact text in the scene:/.test(prompt) ? '' : NO_TEXT}`.slice(0, max);
 
 let openaiChecked = null;
 
@@ -91,7 +91,7 @@ async function viaCloudflareModel(model, prompt, shape) {
   const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${config.cf.accountId}/ai/run/${model}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${config.cf.apiToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(fast ? { prompt: full(prompt), steps: 8 } : { prompt: full(prompt), width: shape.w, height: shape.h }),
+    body: JSON.stringify(fast ? { prompt: full(prompt, 2000), steps: 8 } : { prompt: full(prompt, 2000), width: shape.w, height: shape.h }),
     signal: AbortSignal.timeout(90000),
   });
   if (!res.ok) throw new ProviderError(`Cloudflare ${model} ${res.status}: ${(await res.text()).slice(0, 160)}`, res.status);
@@ -176,6 +176,7 @@ async function generate(prompt, shape) {
     try {
       const buffer = await cropTo(await run(prompt, shape), shape);
       log.info('ai image made', { provider: name });
+      buffer.provider = name;
       return buffer;
     } catch (err) {
       lastError = err;
@@ -199,6 +200,8 @@ export function fallbackPrompts(site) {
 export function aiImageBuffer(prompt, slot) {
   return generate(prompt, shapeOf(slot));
 }
+
+export const paidImages = () => Boolean(config.images.openaiKey);
 
 export async function generateImage(prompt, slot, ownerPhone) {
   return { ...(await processAndUpload(await aiImageBuffer(prompt, slot), ownerPhone)), ai: true, prompt };

@@ -103,6 +103,12 @@ export const config = {
     pixabayKey: env.PIXABAY_API_KEY || '',
     unsplashKey: env.UNSPLASH_ACCESS_KEY || '',
     appName: env.UNSPLASH_APP_NAME || env.BRAND_NAME || 'site60',
+    source: (env.IMAGE_SOURCE || 'ai').toLowerCase(),
+  },
+  budget: {
+    claudeUsd: Number(env.CLAUDE_BUDGET_USD) || 3,
+    imageUsd: Number(env.IMAGE_BUDGET_USD) || 2,
+    imageCostUsd: Number(env.IMAGE_COST_USD) || 0.25,
   },
   imageBase: (env.IMAGE_PUBLIC_BASE || '').replace(/\/+$/, ''),
   adminNumbers: (env.ADMIN_NUMBERS || '')

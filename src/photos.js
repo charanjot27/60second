@@ -2,7 +2,7 @@ import sharp from 'sharp';
 import { config } from './config.js';
 import { log } from './log.js';
 import { processAndUpload } from './storage.js';
-import { aiImageBuffer, cropTo, shapeOf, SLOT_SHAPES } from './images.js';
+import { aiImageBuffer, cropTo, shapeOf, SLOT_SHAPES, paidImages } from './images.js';
 import { cheapEnabled, cheapJson } from './assistant.js';
 
 const SLOT_NAMES = [
@@ -99,15 +99,28 @@ async function thumbnail(buffer) {
   return (await sharp(buffer).resize({ width: 360, withoutEnlargement: true }).jpeg({ quality: 70 }).toBuffer()).toString('base64');
 }
 
-async function slotCandidates(slot, prompt, query) {
+const aiFirst = () => paidImages() && config.images.source !== 'mixed';
+
+async function makeAi(prompt, slot, meter) {
+  const reserved = Boolean(meter && paidImages());
+  if (reserved && !meter.reserveImage()) {
+    log.info('image budget reached', { slot: slot + 1 });
+    return null;
+  }
+  const buffer = await aiImageBuffer(prompt, slot).catch((err) => {
+    log.warn('ai candidate failed', { error: err.message });
+    return null;
+  });
+  if (reserved && buffer?.provider === 'openai') meter.addImage(`picture ${slot + 1}`);
+  else if (reserved) meter.releaseImage();
+  return buffer;
+}
+
+async function slotCandidates(slot, prompt, query, meter) {
   const kind = SLOT_SHAPES[slot];
-  const [stock, ai] = await Promise.all([
-    query && stockEnabled() ? searchStock(query, kind) : Promise.resolve([]),
-    aiImageBuffer(prompt, slot).catch((err) => {
-      log.warn('ai candidate failed', { error: err.message });
-      return null;
-    }),
-  ]);
+  const ai = await makeAi(prompt, slot, meter);
+  const wantStock = query && stockEnabled() && (!aiFirst() || !ai);
+  const stock = wantStock ? await searchStock(query, kind) : [];
   const list = stock.map((c) => ({ ...c }));
   if (ai) list.push({ source: 'AI', buffer: ai, alt: prompt });
   await Promise.all(
@@ -127,7 +140,7 @@ For every slot, look at the candidates and choose the single best one for that s
 Each slot belongs to one section of the page; the picture must clearly show what that section is about for THIS business and its business class (a clinic needs clinical scenes, a bakery needs its baked goods). Reject any candidate with visible text, watermarks or logos, distorted faces or hands, a subject unrelated to the section or the business, a setting that does not fit the business and its region, poor or blurry quality, or colours that clash with the palette.
 Check every candidate against the slot's acceptance criteria: the right subject and setting for the section, natural proportions and convincing materials, correct spelling of any text, room for the page text the brief asks for, a crop that works on both desktop and mobile, usable sharpness, and no artifacts.
 Reject anything misleading: an AI image that looks like evidence of this business's own staff, premises, completed work, properties or customer results when it is not.
-Prefer real photographs when they truly fit; choose the AI image when it fits the brief better. Never pick the same picture for two slots.
+Prefer the commissioned AI photograph when it truly meets the brief; choose a stock photo only when it is clearly better for the section. Never pick the same picture for two slots.
 Reply with JSON only: {"picks":[{"slot":1,"choice":"1A","why":"short reason","fix":""}]}. Use "choice": null when no candidate is good enough, and then say in "fix" exactly what a redrawn AI picture must change (one sentence).`;
 
 async function pickBest(slots, context) {
@@ -155,13 +168,8 @@ async function pickBest(slots, context) {
   return picks;
 }
 
-async function redraw(prompt, fix, slot) {
-  try {
-    return await aiImageBuffer(`${prompt}. Correction: ${fix}`, slot);
-  } catch (err) {
-    log.warn('ai redraw failed', { error: err.message });
-    return null;
-  }
+function redraw(prompt, fix, slot, meter) {
+  return makeAi(`${prompt} Correction from the photo editor: ${fix}`, slot, meter);
 }
 
 function defaultPick(cands) {
@@ -182,12 +190,12 @@ async function finalize(c, slot, ownerPhone, prompt) {
   return { ...(await processAndUpload(buffer, ownerPhone)), stock: true, credit: c.credit, prompt, alt: c.alt };
 }
 
-export async function sourceSiteImages({ prompts, queries = [], context = {}, ownerPhone, skip = [] }) {
+export async function sourceSiteImages({ prompts, queries = [], context = {}, ownerPhone, skip = [], meter = null }) {
   const briefs = prompts.slice(0, 4);
   const skipped = new Set(skip);
-  const slots = await Promise.all(briefs.map((prompt, i) => (skipped.has(i) ? [] : slotCandidates(i, prompt, queries[i]))));
+  const slots = await Promise.all(briefs.map((prompt, i) => (skipped.has(i) ? [] : slotCandidates(i, prompt, queries[i], meter))));
   let picks = new Map();
-  const hasChoice = slots.some((c) => c.length > 1);
+  const hasChoice = slots.some((c) => c.length > 0);
   context = { ...context, slots: SLOT_NAMES };
   if (hasChoice && cheapEnabled()) {
     try {
@@ -202,7 +210,7 @@ export async function sourceSiteImages({ prompts, queries = [], context = {}, ow
       let index = picks.has(i) ? picks.get(i) : defaultPick(cands);
       if (index === -1) {
         const fix = picks.fixes?.get(i);
-        const buffer = fix ? await redraw(briefs[i], fix, i) : null;
+        const buffer = fix ? await redraw(briefs[i], fix, i, meter) : null;
         if (buffer) {
           log.info('picture redrawn', { slot: i + 1, fix });
           return { ...(await finalize({ source: 'AI', buffer }, i, ownerPhone, `${briefs[i]}. Correction: ${fix}`)), slot: i, review: 'redrawn' };

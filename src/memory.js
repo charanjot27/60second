@@ -27,7 +27,7 @@ export function fingerprint(brief, page) {
   };
 }
 
-export async function recordDesign(site, brief, page, images = []) {
+export async function recordDesign(site, brief, page, images = [], spend = null) {
   await designs.insertOne({
     slug: site.slug || '',
     category: site.category || '',
@@ -39,6 +39,7 @@ export async function recordDesign(site, brief, page, images = []) {
     images: images.map((x) => ({ slot: x.slot, source: x.ai ? 'ai' : x.stock ? x.credit?.source || 'stock' : 'owner', review: x.review || 'picked', prompt: String(x.prompt || '').slice(0, 300) })),
     qa: page?.qa ? { issues: page.qa.issues.slice(0, 12), checks: page.qa.checks } : null,
     revisions: 0,
+    ...(spend ? { spend: { claudeUsd: spend.claudeUsd, imageUsd: spend.imageUsd, calls: spend.calls.slice(0, 20) } } : {}),
     outcome: 'live',
     at: new Date(),
   });

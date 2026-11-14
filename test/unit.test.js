@@ -318,14 +318,15 @@ test('generateSitePage parses Gemini sections and retries once', async () => {
   const { generateSitePage } = await import('../src/generate.js');
   const calls = [];
   const realFetch = globalThis.fetch;
-  globalThis.fetch = async () => {
-    calls.push(1);
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
     const text = calls.length === 1 ? 'nonsense' : goodPage('#112233');
     return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text }] } }] }) };
   };
   try {
     const page = await generateSitePage({ businessName: 'Study Room', category: 'Library', services: [], photos: [] }, null);
-    assert.equal(calls.length, 3);
+    assert.equal(calls.filter((u) => u.includes('generativelanguage')).length, 3);
+    assert.ok(calls.at(-1).startsWith('https://fonts.googleapis.com/css2?family=Sora'));
     assert.ok(page.qa.issues.some((x) => /exactly one/.test(x)));
     assert.equal(page.themeColor, '#112233');
     assert.match(page.fonts, /family=Sora:wght@400;700/);

@@ -2,7 +2,7 @@ import sanitizeHtml from 'sanitize-html';
 import { config } from './config.js';
 import { log } from './log.js';
 import { callGemini, geminiEnabled } from './gemini.js';
-import { callClaude, claudeEnabled } from './claude.js';
+import { callClaudeRaw, claudeEnabled } from './claude.js';
 import { escapeHtml } from './render.js';
 import { memoryNote } from './memory.js';
 import { pickSeed, briefIssues, SCRIPT_FONTS, supportsScript } from './designrules.js';
@@ -22,6 +22,9 @@ STEP 1: WRITE THE BUSINESS BRIEF FIRST
 - Local or cultural cues from the details (city, language, festivals, traditions), used tastefully when they fit.
 - Explore a few directions in your head, then commit to the strongest one for business fit, clarity, originality and the available photos. Borrow principles from other industries when they help (a property business can use the spacious photography of hospitality).
 
+DESIGN STANDARD
+Design like the best of Apple, Aesop, Stripe and the Awwwards Site of the Day, translated for a local business: restraint, one clear idea per section, generous whitespace, confident large type, real-feeling photography given room to breathe, depth from layering and light rather than shadows on everything, and details that reward a second look (hairline rules, consistent radius scale, an 8px spacing rhythm, careful optical alignment). Every choice must make the business look more trustworthy and more desirable to its own customers.
+
 THE DESIGN SEED IS MANDATORY
 You receive a seed: style archetype, colour mood, typography direction, hero layout and motion personality, chosen at random by the system. Follow it. The business decides how far to push it: a brutalist seed for a children's clinic becomes soft brutalism (bold structure, friendly colours, rounded type). Never let the seed produce something unsuitable for the business.
 
@@ -38,6 +41,16 @@ TYPOGRAPHY
 - Match the display face to the business (a high-contrast serif for a boutique, a chunky grotesk for a gym, a rounded sans for a kids' brand, a condensed face for streetwear).
 - Never use Inter, Poppins, Montserrat, Roboto, Open Sans, Lato or Raleway as the display font, and never reuse a recent display font.
 - Usually one or two families; one family with a strong hierarchy is fine. Check weights, italics and numerals (prices, addresses, specifications) and readability at small sizes.
+- Typesetting like a master calligrapher and type director: pair by contrast (a high-contrast serif or expressive display with a calm humanist or geometric body), never two faces that compete. A script or calligraphic accent is allowed for at most three words (a signature, one word in the headline), never for sentences. Ask for only the weights you will use (two or three), and only weights the family really has.
+- TYPE LIBRARY (real Google Fonts families with the weights they offer; choose from it unless another real family is clearly better):
+  Editorial serifs: Fraunces 100-900, Playfair Display 400-900, Cormorant Garamond 300-700, Bodoni Moda 400-900, EB Garamond 400-800, Newsreader 200-800, Literata 200-900, Source Serif 4 200-900, Spectral 200-800, Eczar 400-800, Cinzel 400-900. Single weight 400 only: DM Serif Display, Instrument Serif, Young Serif, Gloock, Libre Caslon Display, Gilda Display, Italiana, Marcellus, Prata, Yeseva One, Abril Fatface, Rozha One.
+  Grotesks and geometrics: Syne 400-800, Space Grotesk 300-700, Archivo 100-900, Bricolage Grotesque 200-800, Schibsted Grotesk 400-900, Familjen Grotesk 400-700, Unbounded 200-900, Outfit 100-900, Sora 100-800, Manrope 200-800, Plus Jakarta Sans 200-800, Urbanist 100-900, Lexend 100-900, Epilogue 100-900, Red Hat Display 300-900, Hanken Grotesk 100-900, Onest 100-900, Albert Sans 100-900.
+  Condensed and industrial: Big Shoulders Display 100-900, Barlow Condensed 100-900, Oswald 200-700, Teko 300-700, Khand 300-700; single weight 400: Anton, Bebas Neue.
+  Rounded and friendly: Fredoka 300-700, Baloo 2 400-800, Nunito 200-900, Quicksand 300-700; single weight 400: Varela Round.
+  Slab: Bitter 100-900, Zilla Slab 300-700, Roboto Slab 100-900, Arvo 400 and 700; single weight 400: Alfa Slab One.
+  Calligraphy accents (a few words only): Caveat 400-700, Dancing Script 400-700, Tangerine 400 and 700; single weight 400: Pinyon Script, Great Vibes, Allura, Parisienne, Italianno, Yellowtail, Mrs Saint Delafield.
+  Mono details: JetBrains Mono 100-800, Space Mono 400 and 700, DM Mono 300-500.
+  Body text: DM Sans 100-900, Figtree 300-900, Karla 200-800, Work Sans 100-900, Inter 100-900, Public Sans 100-900, Instrument Sans 400-700, Source Sans 3 200-900, Nunito Sans 200-900, Mulish 200-900, Lora 400-700, Source Serif 4 200-900.
 - Scripts: a Latin font does not contain Gurmukhi or Devanagari. When the language is Punjabi, add "script" with a Gurmukhi family (${SCRIPT_FONTS.pa.join(', ')}); for Hindi a Devanagari family (${SCRIPT_FONTS.hi.slice(0, 8).join(', ')}).
 
 MOTION AND CURSOR
@@ -61,13 +74,20 @@ Reply with JSON only:
   "signatureDetail": "one delight detail suited to the business (steam rising from a cup, sparkle on jewellery, a bouncing dumbbell, a custom cursor)",
   "sound": false,
   "headline": "a hero headline written for this business, never 'Welcome to ...'",
-  "images": [{"slot": 1, "business_context": "", "image_purpose": "", "intended_page_and_section": "", "intended_desktop_and_mobile_use": "", "subject": "", "environment_and_local_context": "", "composition_and_focal_point": "", "space_needed_for_page_text": "", "visual_style": "", "palette_relationship": "", "lighting_and_mood": "", "materials_and_detail": "", "reference_assets_and_their_roles": "", "details_that_must_be_preserved": "", "exact_in_image_text_if_required": "", "exclusions": "", "authenticity_constraints": "", "acceptance_criteria": ""}],
+  "shoot": {"location": "one believable place in the business's own city or region", "timeOfDay": "", "light": "the light quality and direction shared by all pictures", "lens": "camera and lens character", "grade": "the colour grade that ties the pictures to the palette", "mood": ""},
+  "images": [{"slot": 1, "prompt": "the complete production prompt for the image model, 90 to 170 words, written as described under PICTURES", "business_context": "", "image_purpose": "", "intended_page_and_section": "", "intended_desktop_and_mobile_use": "", "subject": "", "environment_and_local_context": "", "composition_and_focal_point": "", "space_needed_for_page_text": "", "visual_style": "", "palette_relationship": "", "lighting_and_mood": "", "materials_and_detail": "", "reference_assets_and_their_roles": "", "details_that_must_be_preserved": "", "exact_in_image_text_if_required": "", "exclusions": "", "authenticity_constraints": "", "acceptance_criteria": ""}],
   "searchQueries": ["four short stock-photo search queries, one per picture, 2 to 5 concrete English words"],
   "presentation": {"direction": "one plain, friendly sentence for the owner on the look you chose and why it suits their business", "action": "the main action the site supports"}
 }
 
 Sound: true only if it truly suits the business (a kids' play zone, a game cafe, a music studio, a playful bakery); false for clinics, law, finance and most services.
 BUSINESS CLASS: you also receive the class this business belongs to, with the feeling, the picture for each section, the content to cover and what to avoid. Treat it as expert guidance for this kind of business; if the business only partly fits, borrow most of the direction from the closest related class.
+PICTURES (you are also the photographer and art director; the image model only sees your "prompt", so it must be excellent)
+- First set one "shoot" for the whole site: one location, one time of day, one light, one lens, one colour grade, so the four pictures look like one professional commission, not stock.
+- Each "prompt" is one rich paragraph of natural language, written the way a top photographer briefs a retoucher, in this order: what the picture is for and its format ("A wide 3:2 editorial hero photograph for a dental clinic in Ludhiana"), the exact subject with concrete, specific details of this business and its services, the setting and local context (architecture, materials, signage-free streets, climate, typical interiors of that city), the composition and focal point (rule of thirds, where the subject sits, foreground and background layers, and which side is left calm and uncluttered for the page headline), camera and lens (for example "full-frame, 35mm at f/2.8, eye level"), light (direction, softness, time of day), colour grade tied to the palette, mood, and realism notes (true-to-life textures, natural imperfections, believable scale, no plastic sheen, no over-saturation, no HDR glow).
+- Picture people only as hands at work, figures from behind, or small figures at a distance; never a recognisable face, and no text, letters, logos or watermarks unless exact_in_image_text_if_required asks for text that belongs in the scene.
+- Make each picture serve its section: hero = the strongest single image of the main offering with calm space for the headline; about = the place or craft (4:5 portrait); services = the specific listed services or products in use (3:2); detail = a tactile close-up (1:1) that works small.
+
 Pictures: exactly four records in "images", one per section, each showing exactly what that section is about for this business in its city or region: slot 1 = hero (the main offering, wide 3:2), 2 = about (the workplace, craft or people at work, tall 4:5), 3 = services (the specific services or products listed, wide 3:2), 4 = detail (a close-up of a product, tool or texture, square). Fill every field; they become the production prompt. Give lens, time of day and colour grading matching the palette so the four look like one professional shoot.
 - Prefer page text over text in pictures; leave exact_in_image_text_if_required empty unless text belongs naturally in the scene.
 - No identifiable faces (people from behind, hands or at a distance are fine), nothing the business did not say it offers.
@@ -77,6 +97,9 @@ Search queries: what a photo editor would type into Pexels or Unsplash to find a
 Before answering, ask yourself: "Could someone spot this as coming from the same generator as the recent designs?" If yes, change the palette, fonts or layout until the answer is no.`;
 
 const PAGE_PROMPT = `You are an award-level web designer and front-end developer. You build one-of-a-kind one-page websites for small businesses, and every site must look as if a different studio designed it. You receive the business facts and an art direction (with a mandatory design seed) from your creative director. Realise it with real craft and improve on it wherever your judgement says so.
+
+DESIGN STANDARD
+Build it the way Apple's web team would build a page for this business: calm, precise, premium, and alive. Large confident typography, generous whitespace on an 8px rhythm, photography given real space, one idea per section, layered depth, and motion that feels physical (cubic-bezier(.2,.8,.2,1) style easing, short distances, never bouncy unless the brand is playful). Finish every detail: consistent radius scale, hairline borders, optical alignment, balanced headline wraps (text-wrap: balance), no orphans in headings.
 
 VISITOR JOURNEY AND ACTIONS
 - Order the page the way visitors decide: understand the offering, explore the relevant options, assess credibility, resolve concerns, take action. Adapt depth and order to the business; choose sections and features by what this business needs (a property dealer needs property types, visit booking and location; a restaurant needs the menu, hours, directions and reservations), never the same set for everyone.
@@ -89,7 +112,7 @@ ACCESSIBILITY (WCAG 2.2 AA)
 LAYOUT
 - Follow the hero layout in the art direction. The hero lands in the first second on a 390px phone: the headline, a clear offer, the WhatsApp action and a striking composition.
 - Avoid the generic template rhythm (centred hero, three icon cards, testimonials, footer). Vary the structure: asymmetric grids, overlapping images, full-bleed bands, sticky side panels, horizontal scroll strips, bento grids, editorial columns. Every section looks different from the one before it while sharing one visual language.
-- Mobile first and still designed on phones, then real layout upgrades at 720px and 1100px, with no horizontal overflow at 360px.
+- Mobile first and still designed on phones, then real layout upgrades at 720px and 1100px (and a refined max-width around 1280px on very wide screens), with no horizontal overflow at 360px. Check the design at 360, 390, 768, 1024 and 1440 pixels in your head: nothing overlaps, nothing is cut off, tap targets stay large, and headings scale with clamp().
 - Sections, adapted to the business: hero, about or story, products or services, gallery when there are photos, a trust section built only from real facts, location with a map link only when an address exists, and a strong contact section with WhatsApp and Call buttons.
 
 COLOUR AND TYPE
@@ -101,6 +124,7 @@ IMAGERY
 - The owner's own photos are the most important pictures on the page: the system has inspected them ("ownerPhotos" in the facts) and already placed the right ones in {{hero_src}}, {{img2_src}} and the gallery. Present them with the image treatment from the art direction, with object-fit: cover so nothing distorts; the system sets object-position from each photo's focal point, so do not set object-position yourself. Never put important faces or text behind overlaid copy.
 - Other pictures are AI illustrations or stock photos. Never caption or label them as the business's own premises, team, work, property or results ("Our office", "Our team", "Our clinic"); keep captions descriptive or leave them out.
 - Put each picture in the section it was made for: {{hero_src}} in the hero, {{img2_src}} in about, {{img3_src}} in services (or a band right beside it), {{img4_src}} as a detail accent.
+- Fit every picture smoothly: give each picture frame an explicit aspect-ratio matching its picture (3/2, 4/5, 3/2, 1/1, or a deliberate crop such as 16/9 on wide screens), width: 100%, height: auto or 100% inside a sized frame, object-fit: cover, display: block, overflow: hidden on rounded frames, and a soft placeholder background in the palette while it loads. Fade pictures in when they gain class "loaded". Pictures must never stretch, overflow their column, leave gaps, or push text off screen at any width.
 - Add the decorative visual system from the art direction (inline SVG or CSS).
 - When a picture block is empty, compose premium visuals from CSS and inline SVG in the palette (refined iconography, typographic art, abstract shapes, patterns), never empty boxes or cartoon clip art.
 
@@ -108,7 +132,8 @@ INTERACTION AND MOTION (follow the motion personality)
 - Buttons feel special: build the button style from the art direction in CSS (a fill sweeping in, text sliding up and swapping, a border that draws itself, an arrow that moves, a glow pulse, a squishy press), and add data-magnetic where a magnetic pull suits it.
 - One standout hero entrance animation.
 - Scroll reveals that are staggered and never all the same: combine class "reveal" with your own variant classes (from-left, scale-in, mask-up, blur-in and so on) styled under .js.
-- Hover and focus states on every interactive element.
+- Hover, focus-visible and active states on every interactive element: links, buttons, cards, pictures (a gentle zoom of the picture inside its frame), navigation and FAQ items; on touch screens (@media (hover: none)) the design must still look finished without hover.
+- Use the interaction hooks generously but with taste: at least the nav, staggered reveals across sections, one data-split headline, the button style, one data-tilt or data-speed picture, and the FAQ as details/summary with a smooth open state.
 - The signature delight detail from the art direction (CSS keyframes and SVG, or the cursor hook).
 - Timing: small interactions about 120 to 220 ms, larger reveals about 250 to 450 ms, one consistent easing. Animate transform and opacity only, never layout properties. Parallax only when it adds meaning. Respect prefers-reduced-motion: content stays visible and usable without animation. Nothing may block reading or delay the call to action.
 - Keep the normal cursor: never cursor: none. Use the data-cursor hook only when the art direction's signature detail asks for it.
@@ -465,16 +490,46 @@ const FIELDS = [
   ['acceptance_criteria', 'Acceptance criteria'],
 ];
 
+const clip = (v, max) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
+
 export function cleanImageRecord(raw, slot) {
-  const rec = { asset_id: `img-${slot + 1}`, slot: slot + 1 };
-  for (const [key] of FIELDS) rec[key] = String(raw?.[key] ?? '').replace(/\s+/g, ' ').trim().slice(0, 400);
+  const rec = { asset_id: `img-${slot + 1}`, slot: slot + 1, prompt: clip(raw?.prompt, 1600) };
+  for (const [key] of FIELDS) rec[key] = clip(raw?.[key], 400);
   return rec;
 }
 
-export function composeImagePrompt(rec) {
+export function cleanShoot(raw) {
+  const keys = ['location', 'timeOfDay', 'light', 'lens', 'grade', 'mood'];
+  const shoot = Object.fromEntries(keys.map((k) => [k, clip(raw?.[k], 160)]));
+  return keys.some((k) => shoot[k]) ? shoot : null;
+}
+
+function shootLine(shoot) {
+  if (!shoot) return '';
+  const bits = [
+    shoot.location && `location ${shoot.location}`,
+    shoot.timeOfDay && shoot.timeOfDay,
+    shoot.light && `${shoot.light} light`,
+    shoot.lens && shoot.lens,
+    shoot.grade && `${shoot.grade} colour grade`,
+    shoot.mood && `${shoot.mood} mood`,
+  ].filter(Boolean);
+  return bits.length ? `Part of one consistent photo shoot: ${bits.join(', ')}.` : '';
+}
+
+export function composeImagePrompt(rec, shoot = null) {
+  const noText = rec.exact_in_image_text_if_required ? '' : ' No text, letters, logos or watermarks anywhere in the picture.';
+  if (rec.prompt && rec.prompt.split(' ').length >= 30) {
+    const extras = [
+      rec.details_that_must_be_preserved && `Must show: ${rec.details_that_must_be_preserved}.`,
+      rec.exclusions && `Avoid: ${rec.exclusions}.`,
+    ].filter(Boolean);
+    return [rec.prompt, shootLine(shoot), ...extras].filter(Boolean).join(' ').concat(noText).slice(0, 2400);
+  }
   const parts = FIELDS.filter(([key]) => rec[key]).map(([key, label]) => `${label}: ${rec[key]}`);
-  if (!rec.exact_in_image_text_if_required) parts.push('No text, letters, logos or watermarks anywhere in the picture');
-  return parts.join('. ').slice(0, 1800);
+  const line = shootLine(shoot);
+  if (line) parts.push(line.replace(/\.$/, ''));
+  return `${parts.join('. ')}.${noText}`.slice(0, 2400);
 }
 
 const FAKE_FACTS = [
@@ -615,9 +670,18 @@ function providers() {
 const GEMINI_PAGE_NOTE =
   '\n\nWrite the complete, finished page in one answer: every section described above with real copy, at least 8 sections, CSS of at least 300 lines covering the mobile, 720px and 1100px layouts, hover and focus states and the motion. Do not shorten or summarise anything.';
 
-async function ask(provider, { system, user, maxTokens, effort, timeoutMs, json }) {
+const OUT_PRICE = 20 / 1e6;
+
+async function ask(provider, { system, user, maxTokens, effort, timeoutMs, json, meter, step = 'design' }) {
   if (provider === 'claude') {
-    return callClaude({ model: config.ai.designModel, system, user, maxTokens, effort, timeoutMs });
+    let limit = maxTokens;
+    if (meter) {
+      limit = Math.min(maxTokens, Math.floor((meter.claudeLeft() - 0.05) / OUT_PRICE));
+      if (limit < 6000) throw new Error('Claude budget for this website is used up');
+    }
+    const out = await callClaudeRaw({ model: config.ai.designModel, system, user, maxTokens: limit, effort, timeoutMs });
+    meter?.addClaude(step, out.model || config.ai.designModel, out.usage);
+    return out.text;
   }
   const text = system === PAGE_PROMPT && typeof user === 'string' ? `${user}${GEMINI_PAGE_NOTE}` : user;
   const base = { system, user: text, maxTokens: Math.min(maxTokens, 60000), temperature: 1, timeoutMs: Math.max(timeoutMs, 300000), json };
@@ -637,16 +701,17 @@ export function designerEnabled() {
 
 function cleanBrief(brief) {
   const records = Array.isArray(brief?.images) ? brief.images.slice(0, 4).map(cleanImageRecord) : [];
-  const usable = records.length === 4 && records.every((r) => r.subject);
+  const usable = records.length === 4 && records.every((r) => r.subject || r.prompt);
+  const shoot = cleanShoot(brief?.shoot);
   const prompts = usable
-    ? records.map(composeImagePrompt)
+    ? records.map((r) => composeImagePrompt(r, shoot))
     : Array.isArray(brief?.imagePrompts)
       ? brief.imagePrompts.map((p) => String(p || '').trim().slice(0, 900)).filter(Boolean).slice(0, 4)
       : [];
   const queries = Array.isArray(brief?.searchQueries)
     ? brief.searchQueries.map((q) => String(q || '').replace(/[^\p{L}\p{N} -]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 80)).slice(0, 4)
     : [];
-  return { ...brief, images: usable ? records : [], imagePrompts: prompts, searchQueries: queries };
+  return { ...brief, shoot, images: usable ? records : [], imagePrompts: prompts, searchQueries: queries };
 }
 
 function seedText(seed) {
@@ -660,7 +725,7 @@ function seedText(seed) {
   );
 }
 
-export async function createArtDirection(site, memory = null) {
+export async function createArtDirection(site, memory = null, meter = null) {
   const industry = industryOf(site);
   const seed = pickSeed(memory, Math.random, industry);
   const note = memoryNote(memory);
@@ -675,7 +740,7 @@ export async function createArtDirection(site, memory = null) {
         const user = attempt
           ? `${base}\n\nYour last art direction broke these rules, fix all of them:\n- ${issues.join('\n- ')}`
           : base;
-        const raw = await ask(provider, { system: ART_PROMPT, user, maxTokens: 16000, effort: 'medium', timeoutMs: 180000, json: true });
+        const raw = await ask(provider, { system: ART_PROMPT, user, maxTokens: 32000, effort: 'high', timeoutMs: 300000, json: true, meter, step: 'art direction' });
         brief = cleanBrief(parseJsonLoose(raw));
         issues = briefIssues(brief, memory, { language: site.language });
         if (!issues.length) break;
@@ -690,7 +755,7 @@ export async function createArtDirection(site, memory = null) {
   return null;
 }
 
-export async function generateSitePage(site, brief) {
+export async function generateSitePage(site, brief, meter = null) {
   const user =
     `Business facts:\n${JSON.stringify(facts(site), null, 2)}\n\n${industryBrief(industryOf(site))}\n\n` +
     (brief
@@ -704,29 +769,36 @@ export async function generateSitePage(site, brief) {
         const raw = await ask(provider, {
           system: PAGE_PROMPT,
           user: retry ? `${user}\nYour previous answer could not be used. Follow the output format exactly and return the complete page.` : user,
-          maxTokens: 64000,
+          maxTokens: 100000,
           effort: config.ai.designEffort,
-          timeoutMs: provider === 'claude' ? 900000 : 180000,
+          timeoutMs: provider === 'claude' ? 1200000 : 180000,
+          meter,
+          step: 'page build',
         });
         const { meta, css, body } = parseSections(raw);
         let page = withScriptFonts(toPage(meta, css, body), site.language, brief?.fonts?.script?.family);
         if (!validPage(page)) throw new Error(`Generated page too small (${body.length} html, ${css.length} css)`);
         let qa = audit(page, site);
-        if (serious(qa.issues).length) {
-          log.info('page audit found issues', { issues: qa.issues });
-          const fixed = await repairPage(provider, user, raw, qa.issues, site, brief).catch((err) => {
-            log.warn('page repair failed', { error: err.message });
-            return null;
-          });
-          if (fixed) {
-            const after = audit(fixed, site);
-            if (serious(after.issues).length < serious(qa.issues).length) {
-              page = fixed;
+        if (qa.issues.length) log.info('page audit found issues', { issues: qa.issues });
+        const canReview = provider === 'claude' && (!meter || meter.claudeLeft() >= REVIEW_MIN_USD);
+        if (canReview || serious(qa.issues).length) {
+          const improved = await (canReview ? reviewPage(raw, qa.issues, site, brief, meter) : repairPage(provider, user, raw, qa.issues, site, brief, meter)).catch(
+            (err) => {
+              log.warn('page review failed', { error: err.message });
+              return null;
+            }
+          );
+          if (improved) {
+            const after = audit(improved, site);
+            if (serious(after.issues).length <= serious(qa.issues).length) {
+              page = improved;
               qa = after;
+              log.info('page improved by review', { issues: qa.issues.length });
             }
           }
         }
-        return { ...page, concept: brief?.concept || '', qa: { checks: qa.checks, issues: qa.issues, at: new Date() } };
+        page = await verifyFonts(page);
+        return { ...page, concept: brief?.concept || '', qa: { checks: qa.checks, issues: qa.issues, reviewed: canReview, at: new Date() } };
       } catch (err) {
         lastError = err;
         log.warn('page attempt failed', { provider, error: err.message });
@@ -745,13 +817,80 @@ function audit(page, site) {
   return auditPage(page, site, fillTemplate(page.body, data));
 }
 
-async function repairPage(provider, user, raw, issues, site, brief) {
+const REVIEW_MIN_USD = 1.0;
+
+const REVIEW_PROMPT = `You are the design director who signs off every website before it goes live: a senior UI/UX designer, a front-end engineer and a type director in one, with Apple-level standards. You receive the business facts, the art direction and the complete page that was just built (META, CSS and BODY using the system's placeholders and hooks), plus any problems an automatic check found.
+
+Review it as if you were looking at it in a browser at 360, 390, 768, 1024 and 1440 pixels wide, then make it excellent:
+1. Responsiveness: no horizontal overflow, nothing overlapping or cut off, real layout changes at the breakpoints, readable line lengths, large tap targets, the nav and mobile menu working through the hooks.
+2. Pictures: every picture frame has an aspect-ratio matching its picture, object-fit: cover, no stretching, no gaps, no picture overflowing its column, soft placeholder colour while loading, a fade-in on class "loaded", important content never hidden behind text.
+3. Typography: a clear, beautiful hierarchy with clamp() sizes, refined letter-spacing and line-height, balanced headline wraps, a great pairing, only weights that the chosen Google Fonts families really have (fix META fonts if not).
+4. Interaction: hover, focus-visible and active states on every link, button, card and picture; the button style from the art direction; staggered reveals; a hero entrance; smooth FAQ; touch screens still look finished; prefers-reduced-motion respected.
+5. Visual polish: consistent spacing rhythm, radius scale and colour roles from the palette; contrast at least 4.5:1; no generic template look; every section earns its place and looks different from its neighbour.
+6. Honesty and contract: no invented facts (prices, ratings, years, counts, awards, addresses, hours), every placeholder, template block, required id and hook still working, nothing outside the allowed tags.
+7. Fix every problem the automatic check listed.
+
+Then reply in exactly one of two ways, with nothing before or after:
+- If the page already meets this standard everywhere: the single line ===PASS===
+- Otherwise: the complete improved page in exactly the original output format (===META===, ===CSS===, ===BODY===, ===END===), keeping everything that already works and improving the rest. Never shorten the page or drop sections.`;
+
+async function reviewPage(raw, issues, site, brief, meter) {
+  const user =
+    `Business facts:\n${JSON.stringify(facts(site), null, 2)}\n\n` +
+    (brief ? `Art direction:\n${JSON.stringify({ ...brief, images: undefined, imagePrompts: undefined, searchQueries: undefined }, null, 2)}\n\n` : '') +
+    `Problems found by the automatic check:\n${issues.length ? `- ${issues.join('\n- ')}` : '- none'}\n\n` +
+    `The page:\n${String(raw).slice(0, 220000)}\n\nReview it now.`;
+  const out = await ask('claude', {
+    system: `${REVIEW_PROMPT}\n\nTHE PAGE CONTRACT THE PAGE MUST KEEP:\n${PAGE_PROMPT.slice(PAGE_PROMPT.indexOf('OUTPUT FORMAT'))}`,
+    user,
+    maxTokens: 100000,
+    effort: config.ai.designEffort,
+    timeoutMs: 1200000,
+    meter,
+    step: 'design review',
+  });
+  if (/^\s*===PASS===/.test(out)) {
+    log.info('design review passed the page');
+    return null;
+  }
+  const { meta, css, body } = parseSections(out);
+  const page = withScriptFonts(toPage(meta, css, body), site.language, brief?.fonts?.script?.family);
+  return validPage(page) && page.body.length >= 0.6 * parseSections(raw).body.length ? page : null;
+}
+
+async function fontsLoad(url) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  return res.ok;
+}
+
+export async function verifyFonts(page) {
+  if (!page?.fonts) return page;
+  try {
+    if (await fontsLoad(page.fonts)) return page;
+    const kept = [];
+    for (const f of Array.isArray(page.fontSpec) ? page.fontSpec : []) {
+      if (!/^[A-Za-z0-9 ]{2,40}$/.test(f?.family || '')) continue;
+      const fam = f.family.trim().replace(/ /g, '+');
+      if (f.weights && (await fontsLoad(`https://fonts.googleapis.com/css2?family=${fam}:wght@${f.weights}&display=swap`))) kept.push(f);
+      else if (await fontsLoad(`https://fonts.googleapis.com/css2?family=${fam}&display=swap`)) kept.push({ family: f.family, weights: '400' });
+    }
+    log.warn('font link repaired', { before: page.fonts, families: kept.map((f) => f.family) });
+    return { ...page, fontSpec: kept, fonts: fontLink(kept) };
+  } catch (err) {
+    log.warn('font check failed', { error: err.message });
+    return page;
+  }
+}
+
+async function repairPage(provider, user, raw, issues, site, brief, meter) {
   const fixRaw = await ask(provider, {
     system: PAGE_PROMPT,
     user: `${user}\n\nYour page:\n${String(raw).slice(0, 200000)}\n\nAn automatic check found these problems. Fix every one and return the complete corrected page in exactly the same output format:\n- ${serious(issues).join('\n- ')}`,
     maxTokens: 64000,
     effort: config.ai.designEffort,
     timeoutMs: provider === 'claude' ? 900000 : 180000,
+    meter,
+    step: 'page repair',
   });
   const { meta, css, body } = parseSections(fixRaw);
   const page = withScriptFonts(toPage(meta, css, body), site.language, brief?.fonts?.script?.family);
@@ -824,7 +963,7 @@ export async function editSite(site, request) {
         timeoutMs: provider === 'claude' ? 900000 : 180000,
       });
       const result = parseEdit(raw);
-      if (result.page) result.page = withScriptFonts(result.page, site.language);
+      if (result.page) result.page = await verifyFonts(withScriptFonts(result.page, site.language));
       if (!site.page?.body) {
         result.page = null;
         result.images = [];

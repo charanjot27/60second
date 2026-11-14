@@ -12,6 +12,7 @@ import { generateImage, fallbackPrompts } from './images.js';
 import { sourceSiteImages } from './photos.js';
 import { classifyIndustry, industryAction } from './industry.js';
 import { inspectPhotos, arrangeOwnPhotos } from './assets.js';
+import { createMeter } from './spend.js';
 import { callClaudeRaw, claudeEnabled } from './claude.js';
 import { cheapEnabled, routeMessage } from './assistant.js';
 import { createArtDirection, generateSitePage, editSite } from './generate.js';
@@ -501,7 +502,7 @@ const HANDLERS = {
       if (!(await allowAdvanced(s._id, config.limits.advancedPerDay))) {
         return sendText(s._id, "You've reached today's limit for new designs. Please try again tomorrow.");
       }
-      await sendText(s._id, '🎨 Creating a completely new design with new pictures. This takes 3 to 5 minutes...');
+      await sendText(s._id, '🎨 Creating a completely new design with new pictures. Our designer is crafting it and checking every detail, this takes about 10 to 15 minutes. I will send it here...');
       markOutcome(site.slug, 'rejected').catch(() => {});
       const made = await designSite(site, s._id);
       if (!made.page) {
@@ -734,7 +735,7 @@ async function publish(s) {
       style = 'basic';
       await sendText(s._id, "You've reached today's limit for designed websites, so I'll publish a simpler layout today. Send *new design* tomorrow for the full design.");
     } else {
-      await sendText(s._id, '🎨 Designing your website and creating its pictures. This takes 3 to 5 minutes, I will send the link here...');
+      await sendText(s._id, '🎨 Designing your website and creating its pictures. Our designer crafts it, then reviews every detail on phone and desktop, so this takes about 10 to 15 minutes. I will send the link here...');
       const made = await designSite({ ...d, language: s.lang || d.language }, s._id);
       extras = { design: made.design, aiImages: made.aiImages, ...(made.page ? { page: made.page } : {}), ...(made.brief ? { brief: made.brief } : {}) };
       designFailed = !made.page;
@@ -811,12 +812,30 @@ async function publish(s) {
   }
 }
 
+function keepAwake() {
+  if (!config.isProd) return () => {};
+  const timer = setInterval(() => {
+    fetch(`https://${config.rootDomain}/healthz`, { signal: AbortSignal.timeout(10000) }).catch(() => {});
+  }, 4 * 60 * 1000);
+  return () => clearInterval(timer);
+}
+
 async function designSite(site, ownerPhone) {
+  const awake = keepAwake();
+  try {
+    return await buildDesign(site, ownerPhone);
+  } finally {
+    awake();
+  }
+}
+
+async function buildDesign(site, ownerPhone) {
   const design = makeDesign(site, String(Date.now()));
   const industry = classifyIndustry(site);
   const memory = await designMemory(site.category, industry.id).catch(() => null);
   site.photos = await inspectPhotos(site.photos, { name: site.businessName, category: site.category, city: site.city, services: site.services });
-  const brief = await createArtDirection(site, memory);
+  const meter = createMeter();
+  const brief = await createArtDirection(site, memory, meter);
   const prompts =
     brief?.imagePrompts?.length === 4
       ? brief.imagePrompts
@@ -834,16 +853,20 @@ async function designSite(site, ownerPhone) {
     concept: brief?.concept,
     palette: brief?.palette,
     imageTreatment: brief?.imageTreatment,
+    shoot: brief?.shoot,
     acceptance: (brief?.images || []).map((r) => r.acceptance_criteria),
   };
   const [aiImages, page] = await Promise.all([
-    sourceSiteImages({ prompts, queries, context, ownerPhone, skip }),
-    generateSitePage({ ...site, design }, brief).catch((err) => {
+    sourceSiteImages({ prompts, queries, context, ownerPhone, skip, meter }),
+    generateSitePage({ ...site, design }, brief, meter).catch((err) => {
       log.warn('page generation failed', { error: err.message });
       return null;
     }),
   ]);
-  if (page) recordDesign(site, brief, page, aiImages).catch((err) => log.warn('design memory failed', { error: err.message }));
+  const spend = meter.summary();
+  log.info('website spend', { slug: site.slug, claudeUsd: spend.claudeUsd, imageUsd: spend.imageUsd, steps: spend.calls.length });
+  if (page) page.spend = { claudeUsd: spend.claudeUsd, imageUsd: spend.imageUsd };
+  if (page) recordDesign(site, brief, page, aiImages, spend).catch((err) => log.warn('design memory failed', { error: err.message }));
   return { design, aiImages, page, brief: briefSummary(brief) };
 }
 
