@@ -13,6 +13,7 @@ export const leads = db.collection('leads');
 export const designs = db.collection('designs');
 export const payments = db.collection('payments');
 export const lessons = db.collection('lessons');
+export const inspirations = db.collection('inspirations');
 
 export async function connect() {
   await client.connect();
@@ -28,6 +29,7 @@ export async function connect() {
     sites.createIndex({ status: 1, 'billing.paidUntil': 1 }),
     payments.createIndex({ slug: 1, at: -1 }),
     lessons.createIndex({ at: -1 }),
+    inspirations.createIndex({ at: -1 }),
     sites.createIndex({ 'domain.expiresAt': 1 }, { sparse: true }),
     sites.createIndex({ 'billing.subscriptionId': 1 }, { sparse: true }),
     leads.createIndex({ slug: 1, at: -1 }),

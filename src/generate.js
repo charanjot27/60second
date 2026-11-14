@@ -4,7 +4,8 @@ import { log } from './log.js';
 import { callGemini, geminiEnabled } from './gemini.js';
 import { callClaudeRaw, claudeEnabled } from './claude.js';
 import { escapeHtml } from './render.js';
-import { memoryNote } from './memory.js';
+import { memoryNote, referenceNote } from './memory.js';
+import { inspirationNote } from './inspirations.js';
 import { pickSeed, briefIssues, SCRIPT_FONTS, supportsScript } from './designrules.js';
 import { classifyIndustry, industryBrief, industryAction } from './industry.js';
 import { arrangeOwnPhotos, assetSummary } from './assets.js';
@@ -175,8 +176,14 @@ HONESTY, NEVER BROKEN
 - Only show an address or a map when the matching placeholder block has data, never write one yourself.
 - When a fact is missing, leave that part out; never write placeholder text such as "[phone]" or "Coming soon".
 
+FOOTER (the closing scene of the site, as carefully designed as the hero)
+- End BODY with one <footer> that feels like the last chapter of the story, never an afterthought or a thin line of small print. Study how award-winning studio and Apple-level sites close: a confident sign-off, everything a visitor needs to act, and one last moment of delight.
+- Give it: a huge typographic sign-off in the display font (the business name or a short closing line, for example cropped by the edge, outlined, set in the script accent, or revealed with data-split); the main action button (href="{{wa}}", text {{action}}) with a quieter Call button; one warm sentence about the business; a designed index of the sections (#about #services #gallery #contact) styled differently from the nav bar; the services as a compact list (<template data-each="services">); contact details ({{phone}}, and {{address}} with a directions link to {{map}} inside their data-if blocks); a back-to-top link (href="#top", with id="top" on the first element of BODY); and the line © {{year}} {{name}}.
+- Layout: a rich multi-column grid on wide screens (an oversize sign-off row, then three or four columns separated by hairlines), stacked with generous spacing on phones. Give it its own surface that contrasts with the section above (often the inverse of the page) and works in both light and dark mode, plus one subtle decorative layer that fits the concept: a marquee band of the services, a large SVG mark of the brand, a live data-scene, a glow following --cx and --cy, or a data-progress ornament.
+- Every link and button has hover, focus-visible and active states and at least 44px touch targets. No invented social links, email addresses, opening hours or addresses. The system adds one slim credit line below your footer.
+
 ANTI-PATTERNS THAT MAKE A SITE LOOK GENERATED
-Glassmorphism cards on a gradient blob background, emoji or icon bullets in a row of three, identical rounded cards everywhere, the same shadow on everything, centred text in every section, a footer that repeats the nav.
+Glassmorphism cards on a gradient blob background, emoji or icon bullets in a row of three, identical rounded cards everywhere, the same shadow on everything, centred text in every section, a thin footer that only repeats the nav or a copyright line.
 
 OUTPUT FORMAT, exactly this with no markdown fences and nothing before or after:
 ===META===
@@ -191,7 +198,7 @@ TECHNICAL CONTRACT
 - BODY is an HTML fragment for inside <body>. Allowed tags: header nav main section article aside footer div span p h1-h4 ul ol li a img figure figcaption button strong em b i small mark sup br hr blockquote details summary dl dt dd address, and inline svg (path circle rect g defs linearGradient radialGradient stop line polyline polygon ellipse text tspan pattern mask clipPath use symbol). No script, style, link, form, input, iframe, video or inline style attributes: class names only. JavaScript is not allowed; all behaviour comes from the hooks below.
 - CSS is plain CSS: no @import, no @font-face, no url(). Use as much CSS as the design needs.
 - Pictures only through the image placeholders below, never external URLs (no Unsplash). Icons as inline SVG in one consistent style.
-- The system adds the page title, meta description, Open Graph tags, a favicon, the site footer, the sticky bottom contact bar, the photo lightbox, an enquiry form and a videos section. Do not add them yourself. Leave about 90px of bottom padding on the last section for the contact bar on phones.
+- The system adds the page title, meta description, Open Graph tags, a favicon, a slim credit line, the sticky bottom contact bar, the photo lightbox, an enquiry form and a videos section (placed right before your footer). Do not add them yourself. The credit line below your footer already leaves room for the contact bar on phones.
 - Give every interactive element a visible :focus-visible state.
 
 INTERACTION HOOKS (a trusted script wires these up; everything must still look right without it)
@@ -230,6 +237,7 @@ REQUIRED
 - A hero with a wrapper id="cta" holding the primary button (href="{{wa}}", text {{action}}) and a quieter Call button (href="{{tel}}").
 - Sections with id="about", id="services" and id="contact"; the contact section has WhatsApp and Call buttons, {{phone}}, and {{address}} with a directions link to {{map}} inside data-if blocks.
 - When the owner sent photos, a section with id="gallery" using the photo gallery block inside <template data-if="photos">.
+- A designed <footer> as the last element of BODY, as described under FOOTER.
 
 Before finishing, check yourself: "Could someone spot this as coming from the same generator as the recent designs?" If yes, change the palette, fonts or layout until the answer is no. Then fill in the manifest truthfully.`;
 
@@ -596,6 +604,7 @@ export function auditPage(page, site, filled) {
   for (const id of ['about', 'services', 'contact', 'cta']) {
     if (!new RegExp(`id="${id}"`).test(page.body)) issues.push(`the required id="${id}" is missing`);
   }
+  if (!/<footer\b/i.test(page.body)) issues.push('the page has no designed footer at the end');
   if (!page.body.includes('{{action}}')) issues.push('the main button does not use the {{action}} label');
   if (/\{\{|\}\}/.test(html.replace(/<template[\s\S]*?<\/template>/gi, ''))) issues.push('an unknown placeholder was left in the page');
   if (/lorem ipsum|\[(?:phone|address|email|price|name)\]|coming soon/i.test(text)) issues.push('placeholder text was left in the page');
@@ -761,7 +770,8 @@ export async function createArtDirection(site, memory = null, meter = null) {
   const note = memoryNote(memory);
   const base =
     `Business facts:\n${JSON.stringify(facts(site), null, 2)}\n\n${industryBrief(industry)}\n\n${seedText(seed)}` +
-    (note ? `\n\nRECENTLY USED DESIGNS (do not resemble any of these in palette, fonts or layout):\n${note}` : '');
+    (note ? `\n\nRECENTLY USED DESIGNS (do not resemble any of these in palette, fonts or layout):\n${note}` : '') +
+    libraryNote(memory);
   for (const provider of providers()) {
     try {
       let brief = null;
@@ -785,12 +795,19 @@ export async function createArtDirection(site, memory = null, meter = null) {
   return null;
 }
 
-export async function generateSitePage(site, brief, meter = null) {
+function libraryNote(memory) {
+  const parts = [inspirationNote(memory?.inspirations), referenceNote(memory)].filter(Boolean);
+  return parts.length ? `\n\n${parts.join('\n\n')}` : '';
+}
+
+export async function generateSitePage(site, brief, meter = null, memory = null) {
+  const library = libraryNote(memory);
   const user =
     `Business facts:\n${JSON.stringify(facts(site), null, 2)}\n\n${industryBrief(industryOf(site))}\n\n` +
     (brief
       ? `Art direction:\n${JSON.stringify({ ...brief, images: undefined, imagePrompts: undefined, searchQueries: undefined }, null, 2)}\n\n`
       : `${seedText(pickSeed(null, Math.random, industryOf(site)))}\n\nNo art direction is available, so create your own from the business and this seed.\n\n`) +
+    (library ? `${library.trim()}\n\n` : '') +
     'Build the website now.';
   let lastError = null;
   for (const provider of providers()) {
@@ -812,7 +829,7 @@ export async function generateSitePage(site, brief, meter = null) {
         if (qa.issues.length) log.info('page audit found issues', { issues: qa.issues });
         const canReview = provider === 'claude' && (!meter || meter.claudeLeft() >= REVIEW_MIN_USD);
         if (canReview || serious(qa.issues).length) {
-          const improved = await (canReview ? reviewPage(raw, qa.issues, site, brief, meter) : repairPage(provider, user, raw, qa.issues, site, brief, meter)).catch(
+          const improved = await (canReview ? reviewPage(raw, qa.issues, site, brief, meter, library) : repairPage(provider, user, raw, qa.issues, site, brief, meter)).catch(
             (err) => {
               log.warn('page review failed', { error: err.message });
               return null;
@@ -857,17 +874,19 @@ Review it as if you were looking at it in a browser at 360, 390, 768, 1024 and 1
 3. Typography: a clear, beautiful hierarchy with clamp() sizes, refined letter-spacing and line-height, balanced headline wraps, a great pairing, only weights that the chosen Google Fonts families really have (fix META fonts if not).
 4. Interaction: hover, focus-visible and active states on every link, button, card and picture; the button style from the art direction; staggered reveals; a hero entrance; smooth FAQ; touch screens still look finished; prefers-reduced-motion respected.
 5. Visual polish: consistent spacing rhythm, radius scale and colour roles from the palette; contrast at least 4.5:1; no generic template look; every section earns its place and looks different from its neighbour.
-6. Honesty and contract: no invented facts (prices, ratings, years, counts, awards, addresses, hours), every placeholder, template block, required id and hook still working, nothing outside the allowed tags.
-7. Fix every problem the automatic check listed.
+6. Footer: a designed closing scene as described in the page rules (sign-off, main action, section index, services, contact, back to top, © {{year}} {{name}}), never a thin line of small print.
+7. Honesty and contract: no invented facts (prices, ratings, years, counts, awards, addresses, hours), every placeholder, template block, required id and hook still working, nothing outside the allowed tags.
+8. Fix every problem the automatic check listed.
 
 Then reply in exactly one of two ways, with nothing before or after:
 - If the page already meets this standard everywhere: the single line ===PASS===
 - Otherwise: the complete improved page in exactly the original output format (===META===, ===CSS===, ===BODY===, ===END===), keeping everything that already works and improving the rest. Never shorten the page or drop sections.`;
 
-async function reviewPage(raw, issues, site, brief, meter) {
+async function reviewPage(raw, issues, site, brief, meter, library = '') {
   const user =
     `Business facts:\n${JSON.stringify(facts(site), null, 2)}\n\n` +
     (brief ? `Art direction:\n${JSON.stringify({ ...brief, images: undefined, imagePrompts: undefined, searchQueries: undefined }, null, 2)}\n\n` : '') +
+    (library ? `${library.trim()}\n\n` : '') +
     `Problems found by the automatic check:\n${issues.length ? `- ${issues.join('\n- ')}` : '- none'}\n\n` +
     `The page:\n${String(raw).slice(0, 220000)}\n\nReview it now.`;
   const out = await ask('claude', {

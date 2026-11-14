@@ -78,6 +78,7 @@ async function findSite(key, query) {
           businessName: site.businessName,
           language: site.language,
           ownerPhone: site.ownerPhone,
+          phone: site.phone,
           notifyEmail: site.notifyEmail,
           customDomain: site.customDomain,
         },

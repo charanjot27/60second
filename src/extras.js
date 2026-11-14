@@ -68,6 +68,7 @@ export function extrasHtml(site, { gallery = [] } = {}) {
 <form class="sx-form" method="post" action="/lead">
 <label>${e(t(lang, 'form_name'))}<input name="name" required maxlength="80" autocomplete="name"></label>
 <label>${e(t(lang, 'form_phone'))}<input name="phone" type="tel" required inputmode="tel" maxlength="20" autocomplete="tel"></label>
+<label>${e(t(lang, 'form_email'))}<input name="email" type="email" maxlength="120" autocomplete="email"></label>
 ${fields}
 <label>${e(t(lang, 'form_message'))}<textarea name="message" maxlength="1000"></textarea></label>
 <div class="sx-hp" aria-hidden="true"><label>Website<input name="website" tabindex="-1" autocomplete="off"></label></div>

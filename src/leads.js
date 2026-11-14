@@ -20,7 +20,8 @@ export function parseLead(body) {
   const time = /^\d{2}:\d{2}$/.test(String(body.time || '')) ? body.time : '';
   const guests = Number.isInteger(Number(body.guests)) && Number(body.guests) > 0 && Number(body.guests) <= 500 ? Number(body.guests) : 0;
   const need = clean(body.need, 200);
-  return { name, phone, message, ...(date && { date }), ...(time && { time }), ...(guests && { guests }), ...(need && { need }) };
+  const email = /^[^\s@]{1,64}@[^\s@]+\.[a-z]{2,}$/i.test(clean(body.email, 120)) ? clean(body.email, 120).toLowerCase() : '';
+  return { name, phone, message, ...(email && { email }), ...(date && { date }), ...(time && { time }), ...(guests && { guests }), ...(need && { need }) };
 }
 
 async function liveSite(req) {
@@ -44,6 +45,7 @@ export async function handleLead(req, res) {
     const text =
       `📩 *New enquiry from your website*\n\n` +
       `👤 ${lead.name}\n📞 ${formatPhone(digits) || lead.phone}\n` +
+      (lead.email ? `📧 ${lead.email}\n` : '') +
       (lead.need ? `🔎 ${lead.need}\n` : '') +
       (lead.date ? `📅 ${lead.date}${lead.time ? ` at ${lead.time}` : ''}\n` : lead.time ? `🕒 ${lead.time}\n` : '') +
       (lead.guests ? `👥 ${lead.guests} people\n` : '') +
@@ -54,6 +56,8 @@ export async function handleLead(req, res) {
       subject: `New enquiry for ${site.businessName}`,
       template: config.wa.leadTemplate,
       params: [site.businessName, lead.name, lead.phone, lead.message || '-'],
+      alsoTo: site.phone,
+      replyTo: lead.email,
     }).catch((err) => log.warn('lead notify failed', { error: err.message }));
     return res.redirect(303, '/thanks');
   } catch (err) {

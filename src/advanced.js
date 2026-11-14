@@ -109,6 +109,7 @@ body{margin:0;-webkit-font-smoothing:antialiased;padding-top:env(safe-area-inset
 :where(a,button,input,textarea,select,summary,[tabindex]):focus-visible{outline:3px solid currentColor;outline-offset:3px}
 .sys-footer{padding:28px 20px calc(96px + env(safe-area-inset-bottom));text-align:center;font-size:14px;opacity:.85}
 .sys-footer p{margin:4px 0}.sys-footer a{font-weight:600}
+.sys-footer.slim{padding-top:14px;font-size:12.5px;opacity:.7}
 .bar{position:fixed;left:0;right:0;bottom:0;z-index:50;display:flex;gap:10px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:rgba(255,255,255,.92);color:#111;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid rgba(0,0,0,.12);transform:translateY(110%);transition:transform .25s ease}
 .bar.on{transform:none}
 .bar a{flex:1 1 0;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;border-radius:999px;font-weight:600;text-decoration:none;border:2px solid #111;color:#111}
@@ -121,6 +122,11 @@ body{margin:0;-webkit-font-smoothing:antialiased;padding-top:env(safe-area-inset
 .lb .n{position:absolute;left:0;right:0;bottom:calc(16px + env(safe-area-inset-bottom));margin:0;text-align:center;font-size:14px;opacity:.85}
 @media (min-width:900px){.bar{display:none}.sys-footer{padding-bottom:40px}}
 @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;animation-iteration-count:1!important;transition:none!important;scroll-behavior:auto!important}}`;
+
+export function withExtras(body, extras) {
+  const at = body.search(/<footer\b(?![\s\S]*<footer\b)/i);
+  return at < 0 ? `${body}\n${extras}` : `${body.slice(0, at)}${extras}\n${body.slice(at)}`;
+}
 
 function renderGenerated(site) {
   const page = site.page;
@@ -141,6 +147,7 @@ function renderGenerated(site) {
   const focusCss = data.focus
     .map((f) => `img[src="${String(f.src).replace(/["\\\n<>]/g, '')}"]{object-position:${Number(f.x)}% ${Number(f.y)}%}`)
     .join('');
+  const designedFooter = /<footer\b/i.test(body);
   const barLabel = data.scalars.action.length <= 22 ? data.scalars.action : 'WhatsApp';
   const gallery = data.lists.photos;
   const lightbox = gallery.length
@@ -185,9 +192,8 @@ ${page.fonts ? `<link rel="preconnect" href="https://fonts.googleapis.com"><link
 <style>${SHELL_CSS}${pageCss(page.css)}${focusCss}${EXTRAS_CSS}</style>
 </head>
 <body>
-${body}
-${extrasHtml(site, { gallery: needsGallery ? data.lists.photos : [] })}
-<footer class="sys-footer">
+${withExtras(body, extrasHtml(site, { gallery: needsGallery ? data.lists.photos : [] }))}
+<footer class="sys-footer${designedFooter ? ' slim' : ''}">
 <p>Made on WhatsApp in 60 seconds with ${e(config.brand)}. <a href="${e(botLink(`Hi, I want a website like ${site.slug}`))}">Make yours</a></p>
 ${creditsHtml(site.aiImages)}
 <p><a href="mailto:${e(config.abuseEmail)}?subject=${encodeURIComponent(`Report ${site.slug}`)}">Report this site</a></p>

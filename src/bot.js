@@ -18,6 +18,8 @@ import { cheapEnabled, routeMessage } from './assistant.js';
 import { createArtDirection, generateSitePage, editSite } from './generate.js';
 import { designMemory, recordDesign, markOutcome, markFeedback, noteRevision } from './memory.js';
 import { currentLessons } from './lessons.js';
+import { addInspiration, listInspirations, removeInspiration } from './inspirations.js';
+import sharp from 'sharp';
 import { transcribe } from './voice.js';
 import {
   billingEnabled,
@@ -40,7 +42,7 @@ import {
 import { domainsEnabled, normalizeDomain, connectDomain } from './domains.js';
 import { domainShopEnabled, domainIdeasEnabled, findDomains, quoteDomain, domainPaid, domainPayLink, offerText, domainRows, priceText, buyLinks, isRegistered, offerDomains } from './domainshop.js';
 import { money } from './plans.js';
-import { t, LANGS, WELCOME, LANG_BUTTONS } from './i18n.js';
+import { t, detectLang } from './i18n.js';
 import { formatPhone } from './render.js';
 import { isDisallowedText } from './moderation.js';
 import { hashPhone, log } from './log.js';
@@ -64,6 +66,8 @@ const DOMAIN_CHECK = /^(?:buy|check|get)\s+(?:domain\s+)?(\S+\.\S+)$/i;
 const CANCEL = new Set(['cancel', 'cancel plan', 'cancel my plan', 'cancel subscription', 'cancel my subscription', 'unsubscribe']);
 const LANG_WORDS = { english: 'en', hindi: 'hi', 'हिंदी': 'hi', punjabi: 'pa', 'ਪੰਜਾਬੀ': 'pa' };
 const HISTORY = 5;
+const INSPIRE = /^(?:inspire|inspiration)\b/;
+const REMOVE_INSPIRATION = /^(?:remove|delete) inspiration (\d{1,2})$/;
 const DONE = new Set(['done', 'photos_done', 'skip', 'skip_photos', 'finish', 'no_photos']);
 const DROP_SESSION = Symbol('drop');
 const mediaTimers = new Map();
@@ -89,6 +93,8 @@ export async function handleMessage(msg) {
     result = await modelCheck(s);
   } else if (cmd === 'lessons' && isAdmin) {
     result = await showLessons(s);
+  } else if (isAdmin && (INSPIRE.test(cmd) || cmd === 'inspirations' || REMOVE_INSPIRATION.test(cmd))) {
+    result = await inspirationCommand(s, msg, text, cmd);
   } else if (isAdmin && ADMIN_CMD.test(cmd)) {
     result = await adminCommand(s, cmd);
   } else if (NEW_SITE.has(cmd)) {
@@ -151,6 +157,47 @@ async function adminCommand(s, cmd) {
   return sendText(s._id, `${slug}: ${state} · plan ${site.plan || 'free'}${left}\n${url}`);
 }
 
+async function inspirationCommand(s, msg, text, cmd) {
+  if (cmd === 'inspirations') {
+    const list = await listInspirations();
+    if (!list.length) return sendText(s._id, 'No inspirations yet. Send *inspire https://website.com* with an optional note, or a screenshot with the caption *inspire*.');
+    return sendText(
+      s._id,
+      `✨ Design standard (${list.length}):\n\n` +
+        list.map((x, i) => `${i + 1}. *${x.name}*${x.url ? ` ${x.url}` : ''}\n   ${x.signature || x.standards[0]}`).join('\n\n') +
+        '\n\nSend *remove inspiration 2* to drop one.'
+    );
+  }
+  const removeMatch = cmd.match(REMOVE_INSPIRATION);
+  if (removeMatch) {
+    const gone = await removeInspiration(Number(removeMatch[1]));
+    return sendText(s._id, gone ? `🗑 Removed ${gone.name}.` : 'There is no inspiration with that number. Send *inspirations* to see the list.');
+  }
+  const rest = text.replace(/^\s*inspir\w*\s*/i, '');
+  const url = rest.match(/https?:\/\/\S+/i)?.[0] || (rest.match(/^([a-z0-9-]+(?:\.[a-z0-9-]+)+)(?:\/\S*)?/i)?.[0] ? `https://${rest.split(/\s+/)[0]}` : '');
+  const note = rest.replace(url, '').replace(/^\S+\.\S+/, (m) => (url.endsWith(m) ? '' : m)).trim();
+  let image = null;
+  if (msg.type === 'image' && msg.mediaId) {
+    const { buffer } = await downloadMedia(msg.mediaId);
+    const data = (await sharp(buffer).resize({ width: 1400, height: 3000, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 78 }).toBuffer()).toString('base64');
+    image = { mimeType: 'image/jpeg', data };
+  }
+  if (!url && !image) return sendText(s._id, 'Send it like this: *inspire https://website.com what I love about it*, or a screenshot with the caption *inspire*.');
+  await sendText(s._id, '👀 Studying it...');
+  try {
+    const item = await addInspiration({ url, note, image });
+    return sendText(
+      s._id,
+      `✅ Added *${item.name}* to the design standard. Every new website must now reach this level:\n\n` +
+        item.standards.slice(0, 6).map((x) => `• ${x}`).join('\n') +
+        (item.signature ? `\n\n⭐ ${item.signature}` : '')
+    );
+  } catch (err) {
+    log.warn('inspiration failed', { error: err.message });
+    return sendText(s._id, `❌ I couldn't study that one (${err.message}). Try a screenshot with the caption *inspire*.`);
+  }
+}
+
 async function showLessons(s) {
   const doc = await currentLessons();
   if (!doc) return sendText(s._id, 'No lessons yet. They are written once a day after at least 3 new websites.');
@@ -192,7 +239,13 @@ async function hearVoice(s, msg) {
   await sendText(s._id, t(lang(s), 'listening'));
   try {
     const { buffer, mimeType } = await downloadMedia(msg.mediaId);
-    return await transcribe(buffer, mimeType, lang(s));
+    const words = await transcribe(buffer, mimeType, s.langSure ? lang(s) : '');
+    const heard = detectLang(words);
+    if (heard) {
+      s.lang = heard;
+      s.langSure = true;
+    }
+    return words;
   } catch (err) {
     log.warn('voice download failed', { user: hashPhone(s._id), error: err.message });
     return '';
@@ -201,12 +254,18 @@ async function hearVoice(s, msg) {
 
 async function answerOf(s, msg, text) {
   if (msg.type === 'audio' && msg.mediaId) return hearVoice(s, msg);
-  return msg.type === 'text' || msg.type === 'button' ? text : '';
+  if (msg.type !== 'text' && msg.type !== 'button') return '';
+  const written = msg.type === 'text' ? detectLang(text) : '';
+  if (written === 'hi' || written === 'pa') {
+    s.lang = written;
+    s.langSure = true;
+  }
+  return text;
 }
 
-function askMode(s) {
+function askMode(s, intro) {
   s.state = 'ASK_MODE';
-  return sendButtons(s._id, t(lang(s), 'mode'), [
+  return sendButtons(s._id, intro || t(lang(s), 'mode'), [
     { id: 'mode_text', title: t(lang(s), 'mode_text') },
     { id: 'mode_voice', title: t(lang(s), 'mode_voice') },
   ]);
@@ -254,6 +313,28 @@ async function understand(s, words, viaVoice) {
   );
 }
 
+const EMAIL = /[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}/i;
+
+export function parseContact(text, ownerPhone = '') {
+  const raw = String(text || '');
+  const email = raw.match(EMAIL)?.[0]?.toLowerCase() || '';
+  const digits = raw.replace(EMAIL, ' ').match(/\+?\d[\d\s()-]{8,18}\d/)?.[0] || '';
+  return { email, phone: digits ? normalizePhone(digits, ownerPhone) : null };
+}
+
+function askContact(s) {
+  s.state = 'ASK_CONTACT';
+  return sendButtons(s._id, t(lang(s), 'ask_contact', { phone: formatPhone(s._id) }), [{ id: 'contact_this', title: t(lang(s), 'contact_this') }]);
+}
+
+async function saveContact(s, { phone, email = '' }) {
+  s.draft.phone = phone;
+  if (email) s.draft.notifyEmail = email;
+  track(s._id, 'contact_given', { email: Boolean(email), ownNumber: phone === s._id });
+  await sendText(s._id, t(lang(s), 'contact_saved', { phone: formatPhone(phone), email: email || '—' }));
+  return askPhotos(s);
+}
+
 function askPhotos(s) {
   s.state = 'ASK_PHOTOS';
   return sendButtons(s._id, t(lang(s), 'photos', { photos: MAX_PHOTOS, videos: MAX_VIDEOS }), [
@@ -262,7 +343,7 @@ function askPhotos(s) {
 }
 
 const HANDLERS = {
-  async NEW(s) {
+  async NEW(s, msg, text = '') {
     const existing = s.fresh ? null : await ownedSite(s);
     if (existing) {
       s.state = 'LIVE';
@@ -271,20 +352,17 @@ const HANDLERS = {
       s.draft = {};
       return liveMenu(s, existing);
     }
-    s.state = 'ASK_LANG';
+    s.state = 'ASK_MODE';
     s.startedAt = Date.now();
     s.draft = {};
     s.editing = null;
+    s.lang = detectLang(text) || s.lang || 'en';
+    s.langSure = false;
     track(s._id, 'conversation_started');
-    await sendButtons(s._id, WELCOME.replace('{name}', s.name || 'there'), LANG_BUTTONS);
+    return askMode(s, t(lang(s), 'welcome', { name: s.name || '' }).replace(/\s+👋/, ' 👋'));
   },
 
-  async ASK_LANG(s, msg, text, cmd) {
-    const picked = cmd.startsWith('lang_') ? cmd.slice(5) : LANG_WORDS[cmd];
-    if (!LANGS.includes(picked)) {
-      return sendButtons(s._id, WELCOME.replace('{name}', s.name || 'there'), LANG_BUTTONS);
-    }
-    s.lang = picked;
+  async ASK_LANG(s) {
     return askMode(s);
   },
 
@@ -292,6 +370,15 @@ const HANDLERS = {
     if (msg.type === 'audio' && msg.mediaId) {
       s.state = 'ASK_VOICE';
       return HANDLERS.ASK_VOICE(s, msg, text, cmd);
+    }
+    const picked = LANG_WORDS[cmd];
+    if (picked) {
+      s.lang = picked;
+      return askMode(s);
+    }
+    if (msg.type === 'text' && text.length >= 25 && !msg.buttonId) {
+      s.lang = detectLang(text) || s.lang;
+      return understand(s, text, false);
     }
     if (cmd === 'mode_voice' || /voice|वॉइस|ਵੌਇਸ/.test(cmd)) return askVoice(s);
     if (cmd === 'mode_text' || /type|text|लिख|ਲਿਖ/.test(cmd)) return askName(s);
@@ -332,6 +419,7 @@ const HANDLERS = {
     if (answer.length < 3) return sendText(s._id, t(lang(s), 'ask_services'));
     const a = { ...s.draft.answers, services: answer.slice(0, 1000) };
     const words = `Business name: ${a.name}\nLocation: ${a.location}\nServices or products: ${a.services}`;
+    if (!s.langSure) s.lang = detectLang(`${a.location} ${a.services}`) || s.lang;
     return understand(s, words, false);
   },
 
@@ -339,7 +427,7 @@ const HANDLERS = {
     if (cmd === 'proceed' || /^(yes|ok|okay|proceed|correct|haan|ha|ਹਾਂ|हाँ|हां)$/.test(cmd)) {
       track(s._id, 'confirmed', { voice: s.draft.viaVoice });
       s.draft.style = 'advanced';
-      return askPhotos(s);
+      return askContact(s);
     }
     if (cmd === 'redo_voice') return askVoice(s);
     if (cmd === 'redo_text' || cmd === 'mode_text') return askName(s);
@@ -348,6 +436,16 @@ const HANDLERS = {
       return understand(s, `${s.draft.ownerWords}\n\nCorrection from the owner: ${correction}`, s.draft.viaVoice);
     }
     return sendButtons(s._id, t(lang(s), 'too_short'), [{ id: 'proceed', title: t(lang(s), 'proceed') }]);
+  },
+
+  async ASK_CONTACT(s, msg, text, cmd) {
+    if (cmd === 'contact_this') return saveContact(s, { phone: s._id });
+    const answer = await answerOf(s, msg, text);
+    const found = parseContact(answer, s._id);
+    if (!found.email && !found.phone) {
+      return sendButtons(s._id, t(lang(s), 'contact_bad'), [{ id: 'contact_this', title: t(lang(s), 'contact_this') }]);
+    }
+    return saveContact(s, { phone: found.phone || s._id, email: found.email });
   },
 
   async ASK_STYLE(s) {
@@ -606,10 +704,11 @@ const HANDLERS = {
   },
 };
 
-function normalizePhone(input) {
+function normalizePhone(input, ownerPhone = '') {
   let digits = String(input).replace(/\D/g, '');
   if (digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1);
-  if (digits.length === 10) digits = `91${digits}`;
+  const owner = String(ownerPhone || '').replace(/\D/g, '');
+  if (digits.length === 10) digits = `${owner.length > 10 ? owner.slice(0, owner.length - 10) : '91'}${digits}`;
   return digits.length >= 11 && digits.length <= 15 ? digits : null;
 }
 
@@ -746,7 +845,8 @@ async function publish(s) {
   const site = {
     slug: d.slug,
     ownerPhone: s._id,
-    phone: s._id,
+    phone: d.phone || s._id,
+    ...(d.notifyEmail ? { notifyEmail: d.notifyEmail } : {}),
     status: trial ? 'trial' : 'active',
     plan: trial ? 'trial' : 'free',
     ...(trial ? { trialEndsAt: trialEndsAt(now) } : {}),
@@ -798,7 +898,7 @@ async function publish(s) {
           : '') +
       `👉 Visitors tap *${action}* to message you on WhatsApp, and website enquiries arrive right here.\n\n` +
       (missing.length ? `📝 To make it even better, send me: ${missing.join('; ')}.\n` : '') +
-      `📍 Share your location pin to add a map. Your number ${formatPhone(s._id)} is on the buttons (send *number 98xxxxxxxx* to change it).\n\n` +
+      `📍 Share your location pin to add a map. Your number ${formatPhone(d.phone || s._id)} is on the buttons (send *number 98xxxxxxxx* to change it).\n\n` +
       (trial
         ? `⏳ It's *free for ${config.billing.trialHours} hours*, then it goes offline automatically.\n` +
           (billingEnabled() ? `To keep it online after that, send *pay* anytime (${priceLabel()}).\n\n` : `To keep it online, just reply *keep it* here.\n\n`)
@@ -832,7 +932,7 @@ async function designSite(site, ownerPhone) {
 async function buildDesign(site, ownerPhone) {
   const design = makeDesign(site, String(Date.now()));
   const industry = classifyIndustry(site);
-  const memory = await designMemory(site.category, industry.id).catch(() => null);
+  const memory = await designMemory(site.category, industry.id, site).catch(() => null);
   site.photos = await inspectPhotos(site.photos, { name: site.businessName, category: site.category, city: site.city, services: site.services });
   const meter = createMeter();
   const brief = await createArtDirection(site, memory, meter);
@@ -858,7 +958,7 @@ async function buildDesign(site, ownerPhone) {
   };
   const [aiImages, page] = await Promise.all([
     sourceSiteImages({ prompts, queries, context, ownerPhone, skip, meter }),
-    generateSitePage({ ...site, design }, brief, meter).catch((err) => {
+    generateSitePage({ ...site, design }, brief, meter, memory).catch((err) => {
       log.warn('page generation failed', { error: err.message });
       return null;
     }),

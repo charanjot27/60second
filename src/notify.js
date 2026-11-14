@@ -2,29 +2,27 @@ import { config } from './config.js';
 import { sendText, sendTemplate, isWindowClosed } from './whatsapp.js';
 import { log, hashPhone } from './log.js';
 
-async function email(to, subject, text) {
+async function email(to, subject, text, replyTo) {
   if (!config.email.resendKey || !config.email.from || !to) return false;
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${config.email.resendKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: config.email.from, to: [to], subject, text }),
+    body: JSON.stringify({ from: config.email.from, to: [to], subject, text, ...(replyTo ? { reply_to: replyTo } : {}) }),
     signal: AbortSignal.timeout(10000),
   });
   if (!res.ok) throw new Error(`Email ${res.status}: ${(await res.text()).slice(0, 160)}`);
   return true;
 }
 
-export async function notifyOwner(site, { text, subject, template, params = [] }) {
-  const to = site.ownerPhone;
-  let delivered = false;
+async function whatsapp(to, text, template, params) {
   try {
     await sendText(to, text);
-    delivered = true;
+    return true;
   } catch (err) {
     if (template && isWindowClosed(err)) {
       try {
         await sendTemplate(to, template, config.wa.templateLang, params);
-        delivered = true;
+        return true;
       } catch (tplErr) {
         log.warn('owner template failed', { user: hashPhone(to), error: tplErr.message.slice(0, 200) });
       }
@@ -32,9 +30,18 @@ export async function notifyOwner(site, { text, subject, template, params = [] }
       log.warn('owner message failed', { user: hashPhone(to), error: err.message.slice(0, 200) });
     }
   }
+  return false;
+}
+
+export async function notifyOwner(site, { text, subject, template, params = [], alsoTo = '', replyTo = '' }) {
+  const to = site.ownerPhone;
+  const extra = String(alsoTo || '').replace(/\D/g, '');
+  let delivered = false;
+  if (extra && extra !== String(to)) delivered = await whatsapp(extra, text, template, params);
+  delivered = (await whatsapp(to, text, template, params)) || delivered;
   if (site.notifyEmail) {
     try {
-      delivered = (await email(site.notifyEmail, subject || `${config.brand}: ${site.businessName}`, text)) || delivered;
+      delivered = (await email(site.notifyEmail, subject || `${config.brand}: ${site.businessName}`, text, replyTo)) || delivered;
     } catch (err) {
       log.warn('owner email failed', { error: err.message.slice(0, 200) });
     }

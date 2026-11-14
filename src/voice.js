@@ -13,7 +13,7 @@ async function viaCloudflare(buffer, lang) {
     {
       method: 'POST',
       headers: { Authorization: `Bearer ${config.cf.apiToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ audio: buffer.toString('base64'), task: 'transcribe', language: lang }),
+      body: JSON.stringify({ audio: buffer.toString('base64'), task: 'transcribe', ...(lang ? { language: lang } : {}) }),
       signal: AbortSignal.timeout(60000),
     }
   );
@@ -35,8 +35,10 @@ async function viaGemini(buffer, mimeType, lang) {
               { inline_data: { mime_type: String(mimeType || 'audio/ogg').split(';')[0], data: buffer.toString('base64') } },
               {
                 text:
-                  `Transcribe this voice note word for word. The speaker most likely uses ${LANG_NAMES[lang] || 'English'}, ` +
-                  'possibly mixed with English. Reply with the transcript only, no comments.',
+                  (lang
+                    ? `Transcribe this voice note word for word. The speaker most likely uses ${LANG_NAMES[lang] || 'English'}, possibly mixed with English. `
+                    : 'Transcribe this voice note word for word. The speaker uses English, Hindi or Punjabi, possibly mixed. ') +
+                  'Write Hindi in Devanagari script and Punjabi in Gurmukhi script, and keep English words in English. Reply with the transcript only, no comments.',
               },
             ],
           },
@@ -55,13 +57,19 @@ export function voiceEnabled() {
   return Boolean((config.cf.accountId && config.cf.apiToken) || config.gemini.apiKey);
 }
 
-export async function transcribe(buffer, mimeType, lang = 'en') {
+const WRONG_SCRIPT = /[\u0600-\u06FF]/;
+
+export async function transcribe(buffer, mimeType, lang = '') {
   const providers = [];
   if (config.cf.accountId && config.cf.apiToken) providers.push(['cloudflare', () => viaCloudflare(buffer, lang)]);
   if (config.gemini.apiKey) providers.push(['gemini', () => viaGemini(buffer, mimeType, lang)]);
   for (const [name, run] of providers) {
     try {
       const text = await run();
+      if (text && WRONG_SCRIPT.test(text) && providers.at(-1)[0] !== name) {
+        log.info('voice transcript in unexpected script, trying next provider', { provider: name });
+        continue;
+      }
       if (text) {
         log.info('voice transcribed', { provider: name, chars: text.length });
         return text;

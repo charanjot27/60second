@@ -26,12 +26,18 @@ and cached for 60 seconds, so publishing is a single insert and is instant.
 
 | Step | Bot asks | Owner sends |
 |---|---|---|
-| 1 | Language: English, हिंदी or ਪੰਜਾਬੀ | a tap |
-| 2 | Type it or send a voice note | a tap |
-| 3 | Business name, location, services (typed one by one, or in one voice note) | text or a voice note |
-| 4 | "Here's what I understood" with Proceed: nothing expensive runs until the owner confirms | a tap, or a typed correction |
+| 1 | Type it or send a voice note | a tap, or the whole description at once |
+| 2 | Business name, location, services (typed one by one, or in one voice note) | text or a voice note |
+| 3 | "Here's what I understood" with Proceed: nothing expensive runs until the owner confirms | a tap, or a typed correction |
+| 4 | Email and WhatsApp number for website enquiries (or Use this number) | text or a tap |
 | 5 | Up to 6 photos or 2 videos, then Done (or No photos for AI pictures) | photos, videos |
 | 6 | Suggested address: Use this / Pick another | a tap, or a typed name |
+
+There is no language question. The bot reads the language from the script of what the owner writes or
+says (Gurmukhi is Punjabi, Devanagari is Hindi, otherwise English): voice notes are transcribed with
+automatic language detection, the bot replies in that language and the website is written in it.
+Enquiries from the website form go to the owner's chat, to the enquiry number when it differs, and to the
+email address (with the visitor's email as reply-to).
 | ✅ | The live link and how many seconds it took | |
 
 Every business is matched to a business class (healthcare, dental, real estate, bakery, restaurant, beauty,
@@ -60,6 +66,22 @@ records (outcome, praise or complaints, change requests, audit findings) and wri
 design lessons; every new art direction receives the lessons for its business class, so each owner starts
 from a better first version. Admins send `lessons` on WhatsApp to read them. This is feedback-driven
 improvement, not model training.
+
+Design memory also works as retrieval (RAG). Every finished site stores a profile embedding (Gemini
+`GEMINI_EMBED_MODEL`), its section outline (ids, headings, building blocks, interaction hooks) and its footer
+markup. A new site looks up the closest earlier sites for similar businesses (a new canteen finds the
+earlier canteens and dhabas), weighted up when owners liked or paid for them and down when they asked for
+many changes; their outlines reach the art direction, the page build and the review as a reference library
+to learn from, never to copy. Without the embedding model it falls back to word overlap.
+
+The studio standard comes from websites the admin likes. An admin sends `inspire https://site.com what I
+love` or a screenshot with the caption `inspire`; Gemini distils it into concrete, transferable design
+standards (layout, type, colour, imagery, motion, footer, signature technique) that every art direction,
+page build and review must reach or beat. `inspirations` lists them and `remove inspiration 2` drops one.
+
+Every page ends with a designed footer: a large typographic sign-off, the main action, an index of the
+sections, services, contact details, back to top and the copyright, on its own surface for light and dark
+mode. The enquiry form and videos are placed right before it and a slim credit line after it.
 
 A site is made in stages, inside a per-site budget (`CLAUDE_BUDGET_USD`, default $3, and `IMAGE_BUDGET_USD`,
 default $2): Opus at high effort writes the brief and art direction (palette roles, a curated Google Fonts
@@ -172,7 +194,8 @@ src/
 ├── domainshop.js  Domain ideas, quotes, purchase, DNS and renewals
 ├── assets.js      Owner photo inspection and placement
 ├── spend.js       Per-site Claude and picture budget meter
-├── memory.js      Design records: avoids repeated combinations, feedback from owners
+├── memory.js      Design records, retrieval of similar earlier sites, feedback from owners
+├── inspirations.js Admin-chosen inspiration sites distilled into the studio design standard
 ├── lessons.js     Daily design lessons distilled from owner feedback
 ├── assistant.js   Small-model router for chat, questions and photo review
 ├── designrules.js Design seeds and the hard design rules
@@ -224,6 +247,7 @@ test/
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Photo uploads |
 | `IMAGE_PUBLIC_BASE` | Photo URLs on sites |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | Google Gemini: fallback copywriter and designer |
+| `GEMINI_EMBED_MODEL` | Embedding model for finding similar earlier websites (default `gemini-embedding-001`) |
 | `OPENAI_API_KEY`, `OPENAI_IMAGE_MODEL` | Optional, best-quality AI pictures |
 | `GEMINI_IMAGE_MODEL` | Gemini picture model, used when the Gemini key allows it |
 | `CF_ACCOUNT_ID`, `CF_AI_TOKEN`, `CF_IMAGE_MODEL` | Optional Cloudflare Workers AI pictures |
@@ -239,7 +263,7 @@ test/
 | `TRIALS=on` | Trials without payment (demo mode). Admins send `activate <site>`, `extend <site> <hours>`, `pause <site>` or `status <site>` on WhatsApp |
 | `RENDER_API_KEY` | Connecting owners' own domains |
 | `WA_LEAD_TEMPLATE`, `WA_ALERT_TEMPLATE` | Approved templates for alerts after the 24-hour window |
-| `RESEND_API_KEY`, `ALERT_EMAIL_FROM` | Email copies of enquiry alerts |
+| `RESEND_API_KEY`, `ALERT_EMAIL_FROM` | Email delivery of website enquiries to the owner's email address |
 | `ADMIN_PASSWORD` | Admin dashboard at `/admin` |
 | `LIMIT_*` | Per-number daily limits |
 | `NODE_ENV`, `PORT` | Server |

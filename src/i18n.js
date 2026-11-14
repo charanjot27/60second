@@ -2,6 +2,14 @@ export const LANGS = ['en', 'hi', 'pa'];
 
 const STRINGS = {
   en: {
+    welcome:
+      'Hi {name} 👋 I will build a website for your business, right here on WhatsApp.\n\nWrite or speak in English, हिंदी or ਪੰਜਾਬੀ, I will understand and reply in your language.\n\nHow would you like to tell me about your business?',
+    ask_contact:
+      '📬 When a customer fills the enquiry form on your website, I will send it to you on WhatsApp and by email.\n\nPlease send your *email address* and the *WhatsApp number* for enquiries.\n_Example: talwar@gmail.com 98765 43210_\n\nOr tap *Use this number* to get them on {phone}.',
+    contact_this: 'Use this number ✅',
+    contact_saved: '✅ Enquiries from your website will go to:\n📞 {phone}\n📧 {email}',
+    contact_bad:
+      "I couldn't find an email address or phone number in that. Please send them like this:\n_talwar@gmail.com 98765 43210_",
     mode: 'How would you like to tell me about your business?',
     mode_text: 'Type it ✍️',
     mode_voice: 'Voice note 🎤',
@@ -27,6 +35,7 @@ const STRINGS = {
     form_title: 'Send an enquiry',
     form_name: 'Your name',
     form_phone: 'Phone number',
+    form_email: 'Email (optional)',
     form_message: 'Message',
     form_send: 'Send',
     form_date: 'Preferred date',
@@ -38,6 +47,14 @@ const STRINGS = {
     back: 'Back to the website',
   },
   hi: {
+    welcome:
+      'नमस्ते {name} 👋 मैं यहीं WhatsApp पर आपके व्यवसाय की वेबसाइट बनाऊँगा।\n\nआप हिंदी, English या ਪੰਜਾਬੀ में लिखें या बोलें, मैं समझकर आपकी भाषा में जवाब दूँगा।\n\nआप अपने व्यवसाय के बारे में कैसे बताना चाहेंगे?',
+    ask_contact:
+      '📬 जब कोई ग्राहक आपकी वेबसाइट पर पूछताछ फ़ॉर्म भरेगा, मैं वह आपको WhatsApp और ईमेल पर भेजूँगा।\n\nकृपया अपना *ईमेल पता* और पूछताछ के लिए *WhatsApp नंबर* भेजें।\n_उदाहरण: talwar@gmail.com 98765 43210_\n\nया *यही नंबर* दबाएं ताकि पूछताछ {phone} पर आए।',
+    contact_this: 'यही नंबर ✅',
+    contact_saved: '✅ वेबसाइट की पूछताछ यहाँ आएगी:\n📞 {phone}\n📧 {email}',
+    contact_bad:
+      'इसमें ईमेल या फ़ोन नंबर नहीं मिला। कृपया ऐसे भेजें:\n_talwar@gmail.com 98765 43210_',
     mode: 'आप अपने व्यवसाय के बारे में कैसे बताना चाहेंगे?',
     mode_text: 'लिखकर ✍️',
     mode_voice: 'वॉइस नोट 🎤',
@@ -63,6 +80,7 @@ const STRINGS = {
     form_title: 'पूछताछ भेजें',
     form_name: 'आपका नाम',
     form_phone: 'फ़ोन नंबर',
+    form_email: 'ईमेल (वैकल्पिक)',
     form_message: 'संदेश',
     form_send: 'भेजें',
     form_date: 'पसंदीदा तारीख',
@@ -74,6 +92,14 @@ const STRINGS = {
     back: 'वेबसाइट पर वापस जाएं',
   },
   pa: {
+    welcome:
+      'ਸਤ ਸ੍ਰੀ ਅਕਾਲ {name} 👋 ਮੈਂ ਇੱਥੇ WhatsApp ਤੇ ਹੀ ਤੁਹਾਡੇ ਕਾਰੋਬਾਰ ਦੀ ਵੈੱਬਸਾਈਟ ਬਣਾਵਾਂਗਾ।\n\nਤੁਸੀਂ ਪੰਜਾਬੀ, हिंदी ਜਾਂ English ਵਿੱਚ ਲਿਖੋ ਜਾਂ ਬੋਲੋ, ਮੈਂ ਸਮਝ ਕੇ ਤੁਹਾਡੀ ਭਾਸ਼ਾ ਵਿੱਚ ਜਵਾਬ ਦਿਆਂਗਾ।\n\nਤੁਸੀਂ ਆਪਣੇ ਕਾਰੋਬਾਰ ਬਾਰੇ ਕਿਵੇਂ ਦੱਸਣਾ ਚਾਹੋਗੇ?',
+    ask_contact:
+      '📬 ਜਦੋਂ ਕੋਈ ਗਾਹਕ ਤੁਹਾਡੀ ਵੈੱਬਸਾਈਟ ਤੇ ਪੁੱਛਗਿੱਛ ਫ਼ਾਰਮ ਭਰੇਗਾ, ਮੈਂ ਉਹ ਤੁਹਾਨੂੰ WhatsApp ਅਤੇ ਈਮੇਲ ਤੇ ਭੇਜਾਂਗਾ।\n\nਕਿਰਪਾ ਕਰਕੇ ਆਪਣਾ *ਈਮੇਲ ਪਤਾ* ਅਤੇ ਪੁੱਛਗਿੱਛ ਲਈ *WhatsApp ਨੰਬਰ* ਭੇਜੋ।\n_ਉਦਾਹਰਣ: talwar@gmail.com 98765 43210_\n\nਜਾਂ *ਇਹੀ ਨੰਬਰ* ਦਬਾਓ ਤਾਂ ਜੋ ਪੁੱਛਗਿੱਛ {phone} ਤੇ ਆਵੇ।',
+    contact_this: 'ਇਹੀ ਨੰਬਰ ✅',
+    contact_saved: '✅ ਵੈੱਬਸਾਈਟ ਦੀ ਪੁੱਛਗਿੱਛ ਇੱਥੇ ਆਵੇਗੀ:\n📞 {phone}\n📧 {email}',
+    contact_bad:
+      'ਇਸ ਵਿੱਚ ਈਮੇਲ ਜਾਂ ਫ਼ੋਨ ਨੰਬਰ ਨਹੀਂ ਮਿਲਿਆ। ਕਿਰਪਾ ਕਰਕੇ ਇਸ ਤਰ੍ਹਾਂ ਭੇਜੋ:\n_talwar@gmail.com 98765 43210_',
     mode: 'ਤੁਸੀਂ ਆਪਣੇ ਕਾਰੋਬਾਰ ਬਾਰੇ ਕਿਵੇਂ ਦੱਸਣਾ ਚਾਹੋਗੇ?',
     mode_text: 'ਲਿਖ ਕੇ ✍️',
     mode_voice: 'ਵੌਇਸ ਨੋਟ 🎤',
@@ -99,6 +125,7 @@ const STRINGS = {
     form_title: 'ਪੁੱਛਗਿੱਛ ਭੇਜੋ',
     form_name: 'ਤੁਹਾਡਾ ਨਾਮ',
     form_phone: 'ਫ਼ੋਨ ਨੰਬਰ',
+    form_email: 'ਈਮੇਲ (ਵਿਕਲਪਿਕ)',
     form_message: 'ਸੁਨੇਹਾ',
     form_send: 'ਭੇਜੋ',
     form_date: 'ਪਸੰਦੀਦਾ ਤਾਰੀਖ',
@@ -111,15 +138,16 @@ const STRINGS = {
   },
 };
 
-export const WELCOME =
-  'Hi {name} 👋 I will build a website for your business, right here on WhatsApp.\n\n' +
-  'First, choose your language.\nपहले अपनी भाषा चुनें।\nਪਹਿਲਾਂ ਆਪਣੀ ਭਾਸ਼ਾ ਚੁਣੋ।';
-
-export const LANG_BUTTONS = [
-  { id: 'lang_en', title: 'English' },
-  { id: 'lang_hi', title: 'हिंदी' },
-  { id: 'lang_pa', title: 'ਪੰਜਾਬੀ' },
-];
+export function detectLang(text) {
+  const s = String(text || '');
+  const gurmukhi = (s.match(/[\u0A00-\u0A7F]/g) || []).length;
+  const devanagari = (s.match(/[\u0900-\u097F]/g) || []).length;
+  const latin = (s.match(/[a-z]/gi) || []).length;
+  if (gurmukhi && gurmukhi >= devanagari && gurmukhi * 2 >= latin * 0.5) return 'pa';
+  if (devanagari && devanagari * 2 >= latin * 0.5) return 'hi';
+  if (latin >= 3) return 'en';
+  return '';
+}
 
 export function t(lang, key, vars = {}) {
   const table = STRINGS[lang] || STRINGS.en;

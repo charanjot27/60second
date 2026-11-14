@@ -114,7 +114,7 @@ function fakeCollection() {
   };
 }
 
-for (const name of ['sites', 'sessions', 'processed', 'usage', 'events', 'leads', 'designs', 'payments', 'lessons']) {
+for (const name of ['sites', 'sessions', 'processed', 'usage', 'events', 'leads', 'designs', 'payments', 'lessons', 'inspirations']) {
   Object.assign(db[name], fakeCollection());
 }
 
@@ -325,6 +325,7 @@ test('every site gets the enquiry form, videos and tap tracking', () => {
 test('a voice-note customer gets an acknowledgement before any website is built', async () => {
   const realFetch = globalThis.fetch;
   const sent = [];
+  const whisperBodies = [];
   const extracted = {
     allowed: true,
     businessName: 'Guru Kirpa Properties',
@@ -350,7 +351,8 @@ test('a voice-note customer gets an acknowledgement before any website is built'
     }
     if (u.startsWith('https://media.example')) return new Response(Buffer.from('ogg-bytes'), { status: 200 });
     if (u.includes('whisper')) {
-      return new Response(JSON.stringify({ result: { text: 'Guru Kirpa Properties, Ranjit Avenue Amritsar, buying selling renting' } }), { status: 200, headers: { 'content-type': 'application/json' } });
+      whisperBodies.push(JSON.parse(init.body));
+      return new Response(JSON.stringify({ result: { text: 'ਗੁਰੂ ਕਿਰਪਾ ਪ੍ਰਾਪਰਟੀਜ਼, ਰਣਜੀਤ ਐਵੇਨਿਊ ਅੰਮ੍ਰਿਤਸਰ, ਖਰੀਦ ਵੇਚ ਕਿਰਾਇਆ' } }), { status: 200, headers: { 'content-type': 'application/json' } });
     }
     if (u.includes('api.anthropic.com')) return claudeStream(JSON.stringify(extracted));
     throw new Error(`unexpected fetch ${u}`);
@@ -362,9 +364,7 @@ test('a voice-note customer gets an acknowledgement before any website is built'
   const lastText = () => last()?.text?.body || last()?.interactive?.body?.text || '';
   const buttons = () => (last()?.interactive?.action?.buttons || []).map((b) => b.reply.id);
   try {
-    await say({ text: 'Hi' });
-    assert.deepEqual(buttons(), ['lang_en', 'lang_hi', 'lang_pa']);
-    await say({ type: 'button', buttonId: 'lang_pa', text: 'ਪੰਜਾਬੀ' });
+    await say({ text: 'ਸਤ ਸ੍ਰੀ ਅਕਾਲ' });
     assert.deepEqual(buttons(), ['mode_text', 'mode_voice']);
     assert.match(lastText(), /ਕਾਰੋਬਾਰ/);
     await say({ type: 'button', buttonId: 'mode_voice' });
@@ -375,7 +375,11 @@ test('a voice-note customer gets an acknowledgement before any website is built'
     assert.match(lastText(), /Buying, Selling, Renting/);
     assert.deepEqual(buttons(), ['proceed', 'redo_voice']);
     assert.equal(db.sites.docs.filter((d) => d.ownerPhone === from).length, 0);
+    assert.equal(whisperBodies.at(-1).language, undefined);
     await say({ type: 'button', buttonId: 'proceed' });
+    assert.deepEqual(buttons(), ['contact_this']);
+    assert.match(lastText(), /ਈਮੇਲ/);
+    await say({ text: 'gurukirpa@gmail.com 98765 43210' });
     assert.deepEqual(buttons(), ['no_photos']);
     await say({ type: 'button', buttonId: 'no_photos' });
     assert.deepEqual(buttons(), ['slug_ok', 'slug_change']);
@@ -383,6 +387,8 @@ test('a voice-note customer gets an acknowledgement before any website is built'
     const site = db.sites.docs.find((d) => d.ownerPhone === from);
     assert.equal(site.businessName, 'Guru Kirpa Properties');
     assert.equal(site.language, 'pa');
+    assert.equal(site.phone, '919876543210');
+    assert.equal(site.notifyEmail, 'gurukirpa@gmail.com');
     assert.equal(site.status, 'trial');
     assert.ok(new Date(site.trialEndsAt) > new Date());
     assert.match(lastText(), /\/pay\/gurukirpa/);
@@ -425,7 +431,6 @@ test('typed answers can be corrected, and live voice edits are confirmed first',
   const buttons = () => (last()?.interactive?.action?.buttons || []).map((b) => b.reply.id);
   try {
     await say({ text: 'hello' });
-    await say({ type: 'button', buttonId: 'lang_en' });
     await say({ type: 'button', buttonId: 'mode_text' });
     assert.match(lastText(), /business name/);
     await say({ text: 'Sweet Crumbs' });
@@ -440,10 +445,15 @@ test('typed answers can be corrected, and live voice edits are confirmed first',
     assert.match(anthropicBodies.at(-1), /Correction from the owner: we also make cupcakes/);
     assert.match(lastText(), /Cakes, Cupcakes/);
     await say({ type: 'button', buttonId: 'proceed' });
+    await say({ text: 'my email is not ready' });
+    assert.deepEqual(buttons(), ['contact_this']);
+    await say({ type: 'button', buttonId: 'contact_this' });
     await say({ type: 'button', buttonId: 'no_photos' });
     await say({ type: 'button', buttonId: 'slug_ok' });
     const site = db.sites.docs.find((d) => d.ownerPhone === from);
     assert.deepEqual(site.services, ['Cakes', 'Cupcakes']);
+    assert.equal(site.phone, from);
+    assert.equal(site.notifyEmail, undefined);
     const calls = anthropicBodies.length;
     await say({ type: 'audio', mediaId: 'au2' });
     assert.match(lastText(), /make the colours dark blue/);
@@ -482,12 +492,12 @@ test('demo mode: trials without payment, owner asks to keep it, admin extends an
   const textTo = (to) => sent.filter((m) => m.to === to).map((m) => m.text?.body || m.interactive?.body?.text || '').at(-1) || '';
   try {
     await say(owner, { text: 'hi' });
-    await say(owner, { type: 'button', buttonId: 'lang_en' });
     await say(owner, { type: 'button', buttonId: 'mode_text' });
     await say(owner, { text: 'Demo Cafe' });
     await say(owner, { text: 'Mohali' });
     await say(owner, { text: 'coffee' });
     await say(owner, { type: 'button', buttonId: 'proceed' });
+    await say(owner, { text: 'cafe@example.com' });
     await say(owner, { type: 'button', buttonId: 'no_photos' });
     await say(owner, { type: 'button', buttonId: 'slug_ok' });
     const site = db.sites.docs.find((d) => d.ownerPhone === owner);
@@ -1076,7 +1086,7 @@ test('the page audit catches invented facts, heading and label problems', async 
   const site = { businessName: 'Guru Kirpa Properties', services: ['Buying'], description: 'Homes in Amritsar.' };
   const good = {
     css: 'a:focus-visible{outline:2px solid}',
-    body: '<section id="cta"><h1>{{name}}</h1><a href="{{wa}}">{{action}}</a></section><section id="about"></section><section id="services"></section><section id="contact"><a href="{{tel}}" aria-label="Call"><svg></svg></a></section>',
+    body: '<section id="cta"><h1>{{name}}</h1><a href="{{wa}}">{{action}}</a></section><section id="about"></section><section id="services"></section><section id="contact"><a href="{{tel}}" aria-label="Call"><svg></svg></a></section><footer><p>© {{year}} {{name}}</p></footer>',
   };
   const filled = good.body.replace(/\{\{\w+\}\}/g, 'x');
   assert.deepEqual(auditPage(good, site, filled).issues, []);
@@ -1235,10 +1245,10 @@ test('an admin can start a new business website and switch between websites', as
     await say(admin, 'hi');
     assert.ok(sent.at(-1).includes('trucks'));
     await say(admin, 'new website');
-    assert.ok(sent.at(-1).includes('lang_en'));
-    assert.equal((await db.sessions.findOne({ _id: admin })).state, 'ASK_LANG');
+    assert.ok(sent.at(-1).includes('mode_voice'));
+    assert.equal((await db.sessions.findOne({ _id: admin })).state, 'ASK_MODE');
     await say(admin, 'start over');
-    assert.equal((await db.sessions.findOne({ _id: admin })).state, 'ASK_LANG');
+    assert.equal((await db.sessions.findOne({ _id: admin })).state, 'ASK_MODE');
     await say(admin, 'my websites');
     assert.ok(sent.at(-1).includes('oldshop') && sent.at(-1).includes('trucks'));
     await say(admin, 'switch oldshop');
@@ -1735,6 +1745,129 @@ test('the OpenAI picture quality is configurable and falls back to high when the
     assert.equal(sent[2].size, '1024x1536');
   } finally {
     globalThis.fetch = realFetch;
+    restore();
+  }
+});
+
+test('earlier websites for similar businesses are retrieved as references for the next design', async () => {
+  const { recordDesign, designMemory, referenceNote } = await import('../src/memory.js');
+  const vectors = { canteen: [1, 0, 0, 0], dhaba: [0.95, 0.1, 0, 0], salon: [0, 0, 1, 0] };
+  const restore = withConfig({ gemini: { apiKey: 'g-key' } });
+  const net = mockFetch([
+    ['embedContent', (u, init) => {
+      const text = JSON.parse(init.body).content.parts[0].text.toLowerCase();
+      const key = Object.keys(vectors).find((k) => text.includes(k)) || 'salon';
+      return { embedding: { values: vectors[key] } };
+    }],
+  ]);
+  const page = (word) => ({
+    body: `<header class="nav"><a data-menu>Menu</a></header><section id="about" class="story reveal"><h2 data-split>The ${word} story</h2><figure data-tilt><img></figure></section><footer class="closing"><h2>See you at lunch</h2><ul><li>Thali</li></ul><a href="#top">Top</a></footer>`,
+  });
+  try {
+    await recordDesign({ slug: 'collegecanteen', category: 'Canteen', city: 'Patiala', services: ['Thali'] }, { industry: 'restaurant', concept: 'Steel tiffin warmth' }, page('canteen'), []);
+    await recordDesign({ slug: 'glowsalon', category: 'Salon', city: 'Patiala', services: ['Hair'] }, { industry: 'salon', concept: 'Mirror gloss' }, page('salon'), []);
+    const stored = db.designs.docs.find((d) => d.slug === 'collegecanteen');
+    assert.equal(stored.outline[1].id, 'about');
+    assert.deepEqual(stored.outline[1].hooks, ['data-split', 'data-tilt']);
+    assert.match(stored.footer, /See you at lunch/);
+    assert.equal(stored.embedding.length, 4);
+
+    const memory = await designMemory('Dhaba', 'restaurant', { slug: 'newdhaba', category: 'Dhaba', services: ['Thali'] });
+    assert.deepEqual(memory.references.map((d) => d.slug), ['collegecanteen']);
+    const note = referenceNote(memory);
+    assert.match(note, /REFERENCE LIBRARY/);
+    assert.match(note, /section#about "The canteen story"/);
+    assert.match(note, /Never copy/);
+  } finally {
+    net.restore();
+    restore();
+  }
+});
+
+test('the admin adds inspirations on WhatsApp and they become the design standard in every prompt', async () => {
+  const { handleMessage } = await import('../src/bot.js');
+  const { generateSitePage } = await import('../src/generate.js');
+  const { designMemory } = await import('../src/memory.js');
+  const admin = '919000000077';
+  config.adminNumbers.push(admin);
+  const restore = withConfig({ gemini: { apiKey: 'g-key' } });
+  const distilled = {
+    name: 'Studio Nord',
+    standards: ['Oversized serif headlines with tight tracking.', 'Sticky image stack that swaps on scroll.', 'A footer with a giant cropped wordmark.'],
+    footer: 'Giant cropped wordmark above four quiet columns.',
+    signature: 'Images reveal through a moving mask.',
+  };
+  let pagePrompt = '';
+  const net = mockFetch([
+    ['studionord.example', () => ({})],
+    ['generativelanguage.googleapis.com', { candidates: [{ content: { parts: [{ text: JSON.stringify(distilled) }] } }] }],
+    ['api.anthropic.com', (u, init) => {
+      pagePrompt = JSON.parse(init.body).messages[0].content;
+      return {};
+    }],
+  ]);
+  const say = (text) => handleMessage({ id: crypto.randomUUID(), from: admin, name: 'A', type: 'text', text });
+  try {
+    await say('inspire https://studionord.example love the mask reveals');
+    assert.ok(said(net.calls, 'Studio Nord'));
+    const stored = db.inspirations.docs.at(-1);
+    assert.equal(stored.url, 'https://studionord.example');
+    assert.equal(stored.note, 'love the mask reveals');
+    await say('inspirations');
+    assert.ok(said(net.calls, 'Design standard (1)'));
+    const memory = await designMemory('Cafe', 'restaurant');
+    await generateSitePage({ businessName: 'Cafe', services: [] }, null, null, memory).catch(() => null);
+    assert.match(pagePrompt, /STUDIO STANDARD/);
+    assert.match(pagePrompt, /Giant cropped wordmark/);
+    await say('remove inspiration 1');
+    assert.equal(db.inspirations.docs.length, 0);
+  } finally {
+    net.restore();
+    restore();
+    config.adminNumbers.pop();
+  }
+});
+
+test('the designed footer closes the page with the enquiry form placed just before it', async () => {
+  const { withExtras } = await import('../src/advanced.js');
+  const out = withExtras('<main>x</main><footer class="end"><p>Bye</p></footer>', '<section id="enquiry"></section>');
+  assert.ok(out.indexOf('id="enquiry"') < out.indexOf('<footer class="end"'));
+  assert.equal(withExtras('<main>x</main>', '<section id="enquiry"></section>'), '<main>x</main>\n<section id="enquiry"></section>');
+  const { auditPage } = await import('../src/generate.js');
+  const issues = auditPage({ css: '', body: '<section id="cta"><h1>{{name}}</h1>{{action}}</section>' }, { businessName: 'X' }, '<h1>x</h1>').issues;
+  assert.ok(issues.includes('the page has no designed footer at the end'));
+});
+
+test('language is detected from what the owner writes or says, and contact details are parsed', async () => {
+  const { detectLang } = await import('../src/i18n.js');
+  const { parseContact } = await import('../src/bot.js');
+  assert.equal(detectLang('ਸਤ ਸ੍ਰੀ ਅਕਾਲ ਜੀ'), 'pa');
+  assert.equal(detectLang('मेरी मिठाई की दुकान है'), 'hi');
+  assert.equal(detectLang('Hello, I run a bakery'), 'en');
+  assert.equal(detectLang('👍'), '');
+  assert.deepEqual(parseContact('Mail: Owner.Shop@Gmail.com, phone +91 98765-43210'), { email: 'owner.shop@gmail.com', phone: '919876543210' });
+  assert.deepEqual(parseContact('4155550123', '14155559999'), { email: '', phone: '14155550123' });
+  assert.deepEqual(parseContact('nothing here'), { email: '', phone: null });
+});
+
+test('a website enquiry reaches the enquiry number and the email, with the visitor email as reply-to', async () => {
+  const { handleLead } = await import('../src/leads.js');
+  const restore = withConfig({ email: { resendKey: 're_x', from: 'alerts@site60.in' } });
+  const net = mockFetch([['api.resend.com', { id: 'e1' }]]);
+  await db.sites.insertOne({ slug: 'leadshop', ownerPhone: '919000000088', phone: '919811100000', notifyEmail: 'shop@example.com', businessName: 'Lead Shop', status: 'active', plan: 'free' });
+  const res = { status() { return this; }, type() { return this; }, send() { return this; }, redirect(code, to) { this.to = to; return this; } };
+  try {
+    await handleLead({ hostname: 'leadshop.site60.in', headers: { host: 'leadshop.site60.in' }, ip: '1.2.3.4', body: { name: 'Riya', phone: '9876543210', email: 'riya@example.com', message: 'Need a cake' } }, res);
+    assert.equal(res.to, '/thanks');
+    await new Promise((r) => setTimeout(r, 20));
+    const wa = net.calls.filter((c) => c.url.includes('graph.facebook.com') && c.body.includes('Riya'));
+    assert.deepEqual(wa.map((c) => JSON.parse(c.body).to).sort(), ['919000000088', '919811100000']);
+    assert.ok(wa[0].body.includes('riya@example.com'));
+    const mail = JSON.parse(net.calls.find((c) => c.url.includes('api.resend.com')).body);
+    assert.deepEqual(mail.to, ['shop@example.com']);
+    assert.equal(mail.reply_to, 'riya@example.com');
+  } finally {
+    net.restore();
     restore();
   }
 });
